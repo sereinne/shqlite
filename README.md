@@ -1,6 +1,8 @@
 # DBCLI
 A simple TUI sqlite client in Java
 
+![Example demonstration of `dbcli`](demo.gif)
+
 ## Dependencies
 - [sqlite-jdbc](https://github.com/xerial/sqlite-jdbc)
 - [jline3](https://github.com/jline/jline3)

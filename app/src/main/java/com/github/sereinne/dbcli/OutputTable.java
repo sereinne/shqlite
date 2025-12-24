@@ -1,7 +1,6 @@
 package com.github.sereinne.dbcli;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class OutputTable {
@@ -28,12 +27,12 @@ public class OutputTable {
         return left + str + right;
     }
 
-    public OutputTable(String... columns) {
-        this.columns.addAll(Arrays.asList(columns));
+    public OutputTable(List<String> columns) {
+        this.columns.addAll(columns);
     }
 
-    public void addRow(String... row) {
-        this.rows.add(Arrays.asList(row));
+    public void addRow(List<String> row) {
+        this.rows.add(row);
     }
 
     // given a `column` that has n number of rows, return the longest row of that `column`
