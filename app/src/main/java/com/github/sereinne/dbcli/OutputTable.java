@@ -1,17 +1,34 @@
 package com.github.sereinne.dbcli;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class OutputTable {
 
-    final int PADDING = 2;
+    public enum Format {
+        RIGHT,
+        CENTER,
+        LEFT,
+    }
+
+    static final int PADDING = 2;
+    Format formatType = Format.CENTER;
+
     List<String> columns = new ArrayList<>();
     List<List<String>> rows = new ArrayList<>();
 
-    private static String centerString(String str, int width, String padstr) {
+    private String padString(String str, int width, String padstr) {
+        return switch (formatType) {
+            case RIGHT -> rightPadding(str, width, padstr);
+            case LEFT -> leftPadding(str, width, padstr);
+            default -> centerPadding(str, width, padstr);
+        };
+    }
+
+    private static String centerPadding(String str, int width, String padstr) {
         if (str == null || width < str.length()) {
-            return str; // Or handle the error as needed
+            return str;
         }
 
         int padding = width - str.length();
@@ -27,12 +44,46 @@ public class OutputTable {
         return left + str + right;
     }
 
-    public OutputTable(List<String> columns) {
+    private static String rightPadding(String str, int width, String padstr) {
+        if (str == null || width < str.length()) {
+            return str;
+        }
+
+        int padding = width - str.length();
+
+        String rightPadding = padstr.repeat(padding);
+
+        return str + rightPadding;
+    }
+
+    private static String leftPadding(String str, int width, String padstr) {
+        if (str == null || width < str.length()) {
+            return str;
+        }
+
+        int padding = width - str.length();
+
+        String leftPadding = padstr.repeat(padding);
+
+        return leftPadding + str;
+    }
+
+    public OutputTable(Format formatType, List<String> columns) {
+        this.formatType = formatType;
         this.columns.addAll(columns);
+    }
+
+    public OutputTable(Format formatType, String... columns) {
+        this.formatType = formatType;
+        this.columns.addAll(Arrays.asList(columns));
     }
 
     public void addRow(List<String> row) {
         this.rows.add(row);
+    }
+
+    public void addRow(String... row) {
+        this.rows.add(Arrays.asList(row));
     }
 
     // given a `column` that has n number of rows, return the longest row of that `column`
@@ -79,7 +130,23 @@ public class OutputTable {
                 sb.append("┴");
             }
         }
-        // sb.append("╮");
+        sb.append("\n");
+        return sb.toString();
+    }
+
+    public String formatColumn(List<String> firstRow) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("│");
+        for (int i = 0; i < firstRow.size(); i++) {
+            sb.append(
+                centerPadding(
+                    firstRow.get(i),
+                    getMaxColumnLength(i) + PADDING,
+                    " "
+                )
+            );
+            sb.append("│");
+        }
         sb.append("\n");
         return sb.toString();
     }
@@ -89,7 +156,7 @@ public class OutputTable {
         sb.append("│");
         for (int i = 0; i < row.size(); i++) {
             sb.append(
-                centerString(row.get(i), getMaxColumnLength(i) + PADDING, " ")
+                padString(row.get(i), getMaxColumnLength(i) + PADDING, " ")
             );
             sb.append("│");
         }
@@ -102,7 +169,7 @@ public class OutputTable {
         sb.append("├");
         int rowLength = row.size();
         for (int i = 0; i < rowLength; i++) {
-            sb.append(centerString("─", getMaxColumnLength(i) + PADDING, "─"));
+            sb.append(centerPadding("─", getMaxColumnLength(i) + PADDING, "─"));
 
             if (i == rowLength - 1) {
                 sb.append("┤");
@@ -118,7 +185,7 @@ public class OutputTable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(formatColumnStart());
-        sb.append(formatRow(columns));
+        sb.append(formatColumn(columns));
         sb.append(stripes(columns));
         for (List<String> row : rows) {
             sb.append(formatRow(row));

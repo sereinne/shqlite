@@ -1,5 +1,6 @@
 package com.github.sereinne.dbcli;
 
+import com.github.sereinne.dbcli.OutputTable.Format;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -41,7 +42,7 @@ public class Dbcli {
             case ".filectrl" -> {}
             case ".fullschema" -> {}
             case ".headers" -> {}
-            case ".help" -> {}
+            case ".help" -> DotCommands.dotHelp(terminal);
             case ".import" -> {}
             case ".imposter" -> {}
             case ".indexes" -> {}
@@ -112,7 +113,7 @@ public class Dbcli {
             columns.add(colname);
         }
 
-        OutputTable table = new OutputTable(columns);
+        OutputTable table = new OutputTable(Format.RIGHT, columns);
 
         while (rs.next()) {
             List<String> row = new ArrayList<>(colSize);
