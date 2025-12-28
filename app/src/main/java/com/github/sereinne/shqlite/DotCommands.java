@@ -1,7 +1,6 @@
 package com.github.sereinne.shqlite;
 
 import com.github.sereinne.shqlite.OutputTable.Format;
-import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -665,7 +664,6 @@ public class DotCommands {
         switch (dotCommand) {
             case ".archive" -> {}
             case ".auth" -> {}
-            case ".backup" -> {}
             case ".bail" -> {}
             case ".cd" -> {}
             case ".changes" -> {}
@@ -709,13 +707,16 @@ public class DotCommands {
             case ".progress" -> {}
             case ".prompt" -> {}
             case ".quit" -> dotQuit();
-            case ".read" -> {
-                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
-                dotRead(dotCommandArgs);
-            }
+            case ".read" -> {}
             case ".recover" -> {}
-            case ".restore" -> {}
-            case ".save" -> {}
+            case ".restore" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotRestore(dotCommandArgs);
+            }
+            case ".save", ".backup" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotSaveOrBackup(dotCommandArgs);
+            }
             case ".scanstats" -> {}
             case ".schema" -> dotSchema();
             case ".separator" -> {}
@@ -741,20 +742,35 @@ public class DotCommands {
                     .writer()
                     .println(
                         "Error: unknown command or invalid arguments:\t" +
-                            "\"" +
+                            " \" " +
                             query +
-                            "\"." +
+                            " \". " +
                             "Enter \".help'\" for help"
                     );
             }
         }
     }
 
-    public void dotOpen(Connection dbConn, String[] args) throws Exception {
-        String newpath = args[0];
-        terminal.writer().println("Opening database file " + newpath + " ...");
-        dbConn = DriverManager.getConnection("jdbc:sqlite:" + newpath);
-        terminal.writer().println("Successfully connected to database");
+    public void dotRestore(String[] args) throws Exception {
+        String path = args[0];
+        terminal.writer().println("restoring database using " + path);
+        stmt.execute("restore from " + path);
+        terminal.writer().println("successfully restore database " + path);
+        terminal.flush();
+    }
+
+    public void dotSaveOrBackup(String[] args) throws Exception {
+        String path = args[0];
+        terminal.writer().println("saving database to " + path);
+        stmt.execute("backup to " + path);
+        terminal.writer().println("saving to " + path);
+        terminal.flush();
+    }
+
+    public static Connection dotOpen(String query) throws Exception {
+        String[] splitted = query.split(" ");
+        String[] args = Arrays.copyOfRange(splitted, 1, splitted.length);
+        return DriverManager.getConnection("jdbc:sqlite:" + args[0]);
     }
 
     public void dotVersion() throws Exception {

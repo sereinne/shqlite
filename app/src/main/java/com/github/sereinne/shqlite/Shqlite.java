@@ -9,7 +9,6 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import org.jline.reader.Completer;
 import org.jline.reader.LineReader;
@@ -43,12 +42,6 @@ public class Shqlite implements Runnable {
         new CommandLine(new Shqlite()).execute(args);
     }
 
-    private Connection dotOpen(String query) throws Exception {
-        String[] splitted = query.split(" ");
-        String[] args = Arrays.copyOfRange(splitted, 1, splitted.length);
-        return DriverManager.getConnection("jdbc:sqlite:" + args[0]);
-    }
-
     @Override
     public void run() {
         Completer completer = DbCompletion.getDotAutoComplete();
@@ -62,6 +55,8 @@ public class Shqlite implements Runnable {
                 .build();
             this.reader = LineReaderBuilder.builder()
                 .terminal(this.terminal)
+                // make this `LineReader` parse multiline sql query
+                .parser(new SQLMultilineParser())
                 .completer(completer)
                 .build();
 
@@ -73,7 +68,7 @@ public class Shqlite implements Runnable {
                 try {
                     if (query.startsWith(".open")) {
                         dbConn.close();
-                        this.dbConn = dotOpen(query);
+                        this.dbConn = DotCommands.dotOpen(query);
                         stmt = dbConn.createStatement();
                     } else if (query.startsWith(".")) {
                         new DotCommands(stmt, terminal).handleDotCommands(
@@ -81,7 +76,8 @@ public class Shqlite implements Runnable {
                             query
                         );
                     } else {
-                        runDynamicQuery(terminal, stmt, query);
+                        String oneLined = query.replace("\n", " ");
+                        runDynamicQuery(terminal, stmt, oneLined);
                     }
                 } catch (SQLException sqle) {
                     sqle.printStackTrace();
