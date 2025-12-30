@@ -1,95 +1,78 @@
 package com.github.sereinne.shqlite;
 
 import com.github.sereinne.shqlite.OutputTable.Format;
-import java.lang.Runnable;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import org.jline.reader.Completer;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
 
-@Command(
-    name = "shqlite",
-    version = "shqlite 1.0.0",
-    mixinStandardHelpOptions = true,
-    description = "terminal `sqlite` client in Java"
-)
-public class Shqlite implements Runnable {
+public class Shqlite {
 
-    @Parameters(
-        index = "0",
-        description = "Database file to connect to",
-        defaultValue = ""
-    )
-    String path;
-
-    Connection dbConn;
     Terminal terminal;
     LineReader reader;
+    Connection conn;
+    Statement stmt;
 
-    public static void main(String[] args) {
-        new CommandLine(new Shqlite()).execute(args);
-    }
-
-    @Override
-    public void run() {
-        Completer completer = DbCompletion.getDotAutoComplete();
-        Statement stmt = null;
+    public Shqlite() {
         try {
-            this.dbConn = DriverManager.getConnection("jdbc:sqlite:" + path);
+            this.conn = DriverManager.getConnection("jdbc:sqlite:");
+            this.stmt = conn.createStatement();
             this.terminal = TerminalBuilder.builder()
                 .system(true)
                 .provider("ffm")
-                .dumb(false)
                 .build();
             this.reader = LineReaderBuilder.builder()
                 .terminal(this.terminal)
-                // make this `LineReader` parse multiline sql query
+                .completer(new Completion(this.stmt))
+                .highlighter(new SyntaxHighlight())
+                .variable("COMPLETION_MODE", "SQLITE_KEYWORDS")
                 .parser(new SQLMultilineParser())
-                .completer(completer)
                 .build();
-
-            stmt = dbConn.createStatement();
-
-            while (true) {
-                String query = reader.readLine("dbcli> ");
-
-                try {
-                    if (query.startsWith(".open")) {
-                        dbConn.close();
-                        this.dbConn = DotCommands.dotOpen(query);
-                        stmt = dbConn.createStatement();
-                    } else if (query.startsWith(".")) {
-                        new DotCommands(stmt, terminal).handleDotCommands(
-                            dbConn,
-                            query
-                        );
-                    } else {
-                        String oneLined = query.replace("\n", " ");
-                        runDynamicQuery(terminal, stmt, oneLined);
-                    }
-                } catch (SQLException sqle) {
-                    sqle.printStackTrace();
-                }
-            }
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[ERROR]: Could proceed because of");
+            System.err.println(e.getMessage());
         }
     }
 
-    public static void printOutputQuery(Terminal terminal, ResultSet rs)
-        throws Exception {
+    public void setDbConnection(Connection newConn) {
+        this.conn = newConn;
+    }
+
+    public static void main(String[] args) {
+        new Shqlite().start();
+    }
+
+    public void start() {
+        try {
+            while (true) {
+                String userInput = reader.readLine("shqlite> ");
+                if (userInput.startsWith(".open")) {
+                    Connection newConnection = DotCommands.dotOpen(userInput);
+                    this.setDbConnection(newConnection);
+                } else if (userInput.startsWith(".quit")) {
+                    break;
+                } else if (userInput.startsWith(".")) {
+                    new DotCommands(stmt, terminal).executeDotCommand(
+                        userInput
+                    );
+                } else {
+                    executeStandardQuery(userInput);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[ERROR]: Could proceed because of");
+            System.err.println(e.getMessage());
+        }
+    }
+
+    public void printOutputQuery(ResultSet rs) throws Exception {
         ResultSetMetaData metadata = rs.getMetaData();
         // `cols` start at 1
         int colSize = metadata.getColumnCount();
@@ -116,23 +99,18 @@ public class Shqlite implements Runnable {
         terminal.flush();
     }
 
-    public static void runDynamicQuery(
-        Terminal terminal,
-        Statement stmt,
-        String query
-    ) throws Exception {
+    public void executeStandardQuery(String query) throws Exception {
         String trimmedQuery = query.trim();
         boolean hasResultSet = stmt.execute(trimmedQuery);
         if (!hasResultSet) {
-            // this must be an INSERT, UPDATE or DELETE statement
+            // this must be a statement that has not output table to display
             terminal
                 .writer()
                 .println("Successfully executed statement " + trimmedQuery);
             terminal.flush();
         } else {
-            // this must be a SELECT statement
             ResultSet rs = stmt.getResultSet();
-            printOutputQuery(terminal, rs);
+            printOutputQuery(rs);
         }
         terminal.flush();
     }
