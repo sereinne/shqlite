@@ -30,9 +30,8 @@ public class Shqlite {
                 .build();
             this.reader = LineReaderBuilder.builder()
                 .terminal(this.terminal)
-                .completer(new Completion(this.stmt))
-                .highlighter(new SyntaxHighlight())
-                .variable("COMPLETION_MODE", "SQLITE_KEYWORDS")
+                .completer(new Completion(stmt))
+                .variable("COMPLETION_MODE", "SQLKEYWORDS")
                 .parser(new SQLMultilineParser())
                 .build();
         } catch (Exception e) {

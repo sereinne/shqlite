@@ -6,3 +6,6 @@ build
 
 # Ignore dummy .db files
 *.db
+
+# Ignore binary (.class) files
+app/bin/main/com/github/sereinne/shqlite/*.class

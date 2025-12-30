@@ -1,12 +1,15 @@
 package com.github.sereinne.shqlite;
 
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 import org.jline.reader.Candidate;
 import org.jline.reader.Completer;
 import org.jline.reader.LineReader;
@@ -15,154 +18,154 @@ import org.jline.reader.impl.completer.StringsCompleter;
 
 public class Completion implements Completer {
 
-    public static final List<Candidate> SQLITE_KEYWORDS = Arrays.asList(
-        new Candidate("ABORT"),
-        new Candidate("ACTION"),
-        new Candidate("ADD"),
-        new Candidate("AFTER"),
-        new Candidate("ALL"),
-        new Candidate("ALTER"),
-        new Candidate("ALWAYS"),
-        new Candidate("ANALYZE"),
-        new Candidate("AND"),
-        new Candidate("AS"),
-        new Candidate("ASC"),
-        new Candidate("ATTACH"),
-        new Candidate("AUTOINCREMENT"),
-        new Candidate("BEFORE"),
-        new Candidate("BEGIN"),
-        new Candidate("BETWEEN"),
-        new Candidate("BY"),
-        new Candidate("CASCADE"),
-        new Candidate("CASE"),
-        new Candidate("CAST"),
-        new Candidate("CHECK"),
-        new Candidate("COLLATE"),
-        new Candidate("COLUMN"),
-        new Candidate("COMMIT"),
-        new Candidate("CONFLICT"),
-        new Candidate("CONSTRAINT"),
-        new Candidate("CREATE"),
-        new Candidate("CROSS"),
-        new Candidate("CURRENT"),
-        new Candidate("CURRENT_DATE"),
-        new Candidate("CURRENT_TIME"),
-        new Candidate("CURRENT_TIMESTAMP"),
-        new Candidate("DATABASE"),
-        new Candidate("DEFAULT"),
-        new Candidate("DEFERRABLE"),
-        new Candidate("DEFERRED"),
-        new Candidate("DELETE"),
-        new Candidate("DESC"),
-        new Candidate("DETACH"),
-        new Candidate("DISTINCT"),
-        new Candidate("DO"),
-        new Candidate("DROP"),
-        new Candidate("EACH"),
-        new Candidate("ELSE"),
-        new Candidate("END"),
-        new Candidate("ESCAPE"),
-        new Candidate("EXCEPT"),
-        new Candidate("EXCLUDE"),
-        new Candidate("EXCLUSIVE"),
-        new Candidate("EXISTS"),
-        new Candidate("EXPLAIN"),
-        new Candidate("FAIL"),
-        new Candidate("FILTER"),
-        new Candidate("FIRST"),
-        new Candidate("FOLLOWING"),
-        new Candidate("FOR"),
-        new Candidate("FOREIGN"),
-        new Candidate("FROM"),
-        new Candidate("FULL"),
-        new Candidate("GENERATED"),
-        new Candidate("GLOB"),
-        new Candidate("GROUP"),
-        new Candidate("GROUPS"),
-        new Candidate("HAVING"),
-        new Candidate("IF"),
-        new Candidate("IGNORE"),
-        new Candidate("IMMEDIATE"),
-        new Candidate("IN"),
-        new Candidate("INDEX"),
-        new Candidate("INDEXED"),
-        new Candidate("INITIALLY"),
-        new Candidate("INNER"),
-        new Candidate("INSERT"),
-        new Candidate("INSTEAD"),
-        new Candidate("INTERSECT"),
-        new Candidate("INTO"),
-        new Candidate("IS"),
-        new Candidate("ISNULL"),
-        new Candidate("JOIN"),
-        new Candidate("KEY"),
-        new Candidate("LAST"),
-        new Candidate("LEFT"),
-        new Candidate("LIKE"),
-        new Candidate("LIMIT"),
-        new Candidate("MATCH"),
-        new Candidate("MATERIALIZED"),
-        new Candidate("NATURAL"),
-        new Candidate("NO"),
-        new Candidate("NOT"),
-        new Candidate("NOTHING"),
-        new Candidate("NOTNULL"),
-        new Candidate("NULL"),
-        new Candidate("NULLS"),
-        new Candidate("OF"),
-        new Candidate("OFFSET"),
-        new Candidate("ON"),
-        new Candidate("OR"),
-        new Candidate("ORDER"),
-        new Candidate("OTHERS"),
-        new Candidate("OUTER"),
-        new Candidate("OVER"),
-        new Candidate("PARTITION"),
-        new Candidate("PLAN"),
-        new Candidate("PRAGMA"),
-        new Candidate("PRECEDING"),
-        new Candidate("PRIMARY"),
-        new Candidate("QUERY"),
-        new Candidate("RAISE"),
-        new Candidate("RANGE"),
-        new Candidate("RECURSIVE"),
-        new Candidate("REFERENCES"),
-        new Candidate("REGEXP"),
-        new Candidate("REINDEX"),
-        new Candidate("RELEASE"),
-        new Candidate("RENAME"),
-        new Candidate("REPLACE"),
-        new Candidate("RESTRICT"),
-        new Candidate("RETURNING"),
-        new Candidate("RIGHT"),
-        new Candidate("ROLLBACK"),
-        new Candidate("ROW"),
-        new Candidate("ROWS"),
-        new Candidate("SAVEPOINT"),
-        new Candidate("SELECT"),
-        new Candidate("SET"),
-        new Candidate("TABLE"),
-        new Candidate("TEMP"),
-        new Candidate("TEMPORARY"),
-        new Candidate("THEN"),
-        new Candidate("TIES"),
-        new Candidate("TO"),
-        new Candidate("TRANSACTION"),
-        new Candidate("TRIGGER"),
-        new Candidate("UNBOUNDED"),
-        new Candidate("UNION"),
-        new Candidate("UNIQUE"),
-        new Candidate("UPDATE"),
-        new Candidate("USING"),
-        new Candidate("VACUUM"),
-        new Candidate("VALUES"),
-        new Candidate("VIEW"),
-        new Candidate("VIRTUAL"),
-        new Candidate("WHEN"),
-        new Candidate("WHERE"),
-        new Candidate("WINDOW"),
-        new Candidate("WITH"),
-        new Candidate("WITHOUT")
+    public static final List<String> SQLITE_KEYWORDS = Arrays.asList(
+        "ABORT",
+        "ACTION",
+        "ADD",
+        "AFTER",
+        "ALL",
+        "ALTER",
+        "ALWAYS",
+        "ANALYZE",
+        "AND",
+        "AS",
+        "ASC",
+        "ATTACH",
+        "AUTOINCREMENT",
+        "BEFORE",
+        "BEGIN",
+        "BETWEEN",
+        "BY",
+        "CASCADE",
+        "CASE",
+        "CAST",
+        "CHECK",
+        "COLLATE",
+        "COLUMN",
+        "COMMIT",
+        "CONFLICT",
+        "CONSTRAINT",
+        "CREATE",
+        "CROSS",
+        "CURRENT",
+        "CURRENT_DATE",
+        "CURRENT_TIME",
+        "CURRENT_TIMESTAMP",
+        "DATABASE",
+        "DEFAULT",
+        "DEFERRABLE",
+        "DEFERRED",
+        "DELETE",
+        "DESC",
+        "DETACH",
+        "DISTINCT",
+        "DO",
+        "DROP",
+        "EACH",
+        "ELSE",
+        "END",
+        "ESCAPE",
+        "EXCEPT",
+        "EXCLUDE",
+        "EXCLUSIVE",
+        "EXISTS",
+        "EXPLAIN",
+        "FAIL",
+        "FILTER",
+        "FIRST",
+        "FOLLOWING",
+        "FOR",
+        "FOREIGN",
+        "FROM",
+        "FULL",
+        "GENERATED",
+        "GLOB",
+        "GROUP",
+        "GROUPS",
+        "HAVING",
+        "IF",
+        "IGNORE",
+        "IMMEDIATE",
+        "IN",
+        "INDEX",
+        "INDEXED",
+        "INITIALLY",
+        "INNER",
+        "INSERT",
+        "INSTEAD",
+        "INTERSECT",
+        "INTO",
+        "IS",
+        "ISNULL",
+        "JOIN",
+        "KEY",
+        "LAST",
+        "LEFT",
+        "LIKE",
+        "LIMIT",
+        "MATCH",
+        "MATERIALIZED",
+        "NATURAL",
+        "NO",
+        "NOT",
+        "NOTHING",
+        "NOTNULL",
+        "NULL",
+        "NULLS",
+        "OF",
+        "OFFSET",
+        "ON",
+        "OR",
+        "ORDER",
+        "OTHERS",
+        "OUTER",
+        "OVER",
+        "PARTITION",
+        "PLAN",
+        "PRAGMA",
+        "PRECEDING",
+        "PRIMARY",
+        "QUERY",
+        "RAISE",
+        "RANGE",
+        "RECURSIVE",
+        "REFERENCES",
+        "REGEXP",
+        "REINDEX",
+        "RELEASE",
+        "RENAME",
+        "REPLACE",
+        "RESTRICT",
+        "RETURNING",
+        "RIGHT",
+        "ROLLBACK",
+        "ROW",
+        "ROWS",
+        "SAVEPOINT",
+        "SELECT",
+        "SET",
+        "TABLE",
+        "TEMP",
+        "TEMPORARY",
+        "THEN",
+        "TIES",
+        "TO",
+        "TRANSACTION",
+        "TRIGGER",
+        "UNBOUNDED",
+        "UNION",
+        "UNIQUE",
+        "UPDATE",
+        "USING",
+        "VACUUM",
+        "VALUES",
+        "VIEW",
+        "VIRTUAL",
+        "WHEN",
+        "WHERE",
+        "WINDOW",
+        "WITH",
+        "WITHOUT"
     );
 
     // All possible dot commands
@@ -782,21 +785,23 @@ public class Completion implements Completer {
         )
     );
 
-    Map<String, Completer> completers = new HashMap<>();
+    public static final List<String> STR_DOT_COMMANDS = DOT_COMMANDS.stream()
+        .map(e -> e.value())
+        .collect(Collectors.toList());
+
+    Map<String, List<String>> candidatePair = new HashMap<>();
     Statement stmt;
 
     public Completion(Statement stmt) {
         this.stmt = stmt;
-        this.completers.put(
-            "SQLITE_KEYWORDS",
-            new StringsCompleter(SQLITE_KEYWORDS)
-        );
-        this.completers.put("DOT_COMMANDS", new StringsCompleter(DOT_COMMANDS));
-        this.completers.put("TABLES", new StringsCompleter(""));
+        this.candidatePair.put("SQLKEYWORDS", SQLITE_KEYWORDS);
+        this.candidatePair.put("DOTCOMMANDS", STR_DOT_COMMANDS);
+        this.candidatePair.put("TABLES", Arrays.asList());
+        this.candidatePair.put("COLUMNS", Arrays.asList());
     }
 
-    public List<Candidate> getTables() {
-        List<Candidate> tableNames = new ArrayList<>();
+    public List<String> getTableNames() {
+        List<String> tableNames = new ArrayList<>();
         try {
             ResultSet tables = stmt.executeQuery(
                 "SELECT name FROM sqlite_schema WHERE type in ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY 1"
@@ -804,12 +809,33 @@ public class Completion implements Completer {
 
             while (tables.next()) {
                 String tableName = tables.getString("name");
-                tableNames.add(new Candidate(tableName));
+                tableNames.add(tableName);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("no tables available");
         }
         return tableNames;
+    }
+
+    public List<String> getAllColumns() {
+        List<String> columnNames = new ArrayList<>();
+        List<String> tableNames = this.candidatePair.get("TABLES");
+        columnNames.add("*");
+        try {
+            for (String tableName : tableNames) {
+                ResultSet rs = stmt.executeQuery("SELECT * FROM " + tableName);
+                ResultSetMetaData metadata = rs.getMetaData();
+                int cols = metadata.getColumnCount();
+
+                for (int i = 1; i <= cols; i++) {
+                    String columnName = metadata.getColumnName(i);
+                    columnNames.add(columnName);
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("no columns available");
+        }
+        return columnNames;
     }
 
     @Override
@@ -818,35 +844,35 @@ public class Completion implements Completer {
         ParsedLine line,
         List<Candidate> candidates
     ) {
-        String rest = line.line();
+        String unparsedLine = line.line();
         String word = line.word();
-
         String mode = (String) reader.getVariable("COMPLETION_MODE");
         if (word.startsWith(".")) {
-            mode = "DOT_COMMANDS";
+            mode = "DOTCOMMANDS";
         }
 
-        if (isLastWord(rest, "SELECT")) {
-            candidates.add(new Candidate("*"));
+        if (isAfterWord(unparsedLine, "SELECT")) {
+            this.candidatePair.put("COLUMNS", getAllColumns());
+            mode = "COLUMNS";
         }
 
         if (
-            isLastWord(rest, "FROM") ||
-            isLastWord(rest, "JOIN") ||
-            isLastWord(rest, "INTO")
+            isAfterWord(unparsedLine, "FROM") ||
+            isAfterWord(unparsedLine, "INTO") ||
+            isAfterWord(unparsedLine, "JOIN")
         ) {
-            Completer tables = new StringsCompleter(getTables());
-            this.completers.put("TABLES", tables);
+            this.candidatePair.put("TABLES", getTableNames());
             mode = "TABLES";
         }
 
-        Completer completer = this.completers.get(mode);
-        completer.complete(reader, line, candidates);
+        List<String> completionCandidates = this.candidatePair.get(mode);
+        Completer sc = new StringsCompleter(completionCandidates);
+        sc.complete(reader, line, candidates);
     }
 
-    private boolean isLastWord(String buffer, String word) {
-        String[] split = buffer.split("\\s+");
-        String last = split[split.length - 1];
+    private boolean isAfterWord(String unparsedLine, String word) {
+        String[] splitted = unparsedLine.split("\\s+");
+        String last = splitted[splitted.length - 1];
         if (last.equals(word)) {
             return true;
         }
