@@ -1,11 +1,13 @@
 package com.github.sereinne.shqlite;
 
 import com.github.sereinne.shqlite.OutputTable.Format;
+import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.Scanner;
 import org.jline.terminal.Terminal;
 
 public class DotCommands {
@@ -96,7 +98,10 @@ public class DotCommands {
             case ".progress" -> unimplemented(dotCommand);
             case ".prompt" -> unimplemented(dotCommand);
             case ".quit" -> dotQuit();
-            case ".read" -> unimplemented(dotCommand);
+            case ".read" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotRead(dotCommandArgs);
+            }
             case ".recover" -> unimplemented(dotCommand);
             case ".restore" -> {
                 if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
@@ -160,6 +165,28 @@ public class DotCommands {
         String[] splitted = query.split(" ");
         String[] args = Arrays.copyOfRange(splitted, 1, splitted.length);
         return DriverManager.getConnection("jdbc:sqlite:" + args[0]);
+    }
+
+    public void dotRead(String[] args) throws Exception {
+        String filepath = args[0];
+        Scanner sc = new Scanner(new File(filepath));
+        sc.useDelimiter(";");
+
+        while (sc.hasNext()) {
+            String sqlStatement = sc.next().trim();
+            if (!sqlStatement.isEmpty() && !sqlStatement.isBlank()) {
+                stmt.addBatch(sqlStatement);
+                terminal
+                    .writer()
+                    .println("successfully added statement into batch");
+                terminal.flush();
+            }
+        }
+
+        stmt.executeBatch();
+        terminal.writer().println("successfully executed all batch");
+
+        sc.close();
     }
 
     public void dotVersion() throws Exception {

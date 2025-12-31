@@ -41,7 +41,15 @@ public class Shqlite {
     }
 
     public void setDbConnection(Connection newConn) {
-        this.conn = newConn;
+        try {
+            if (this.stmt != null && !this.stmt.isClosed()) {
+                this.stmt.close();
+            }
+            this.conn = newConn;
+            this.stmt = conn.createStatement();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public static void main(String[] args) {
