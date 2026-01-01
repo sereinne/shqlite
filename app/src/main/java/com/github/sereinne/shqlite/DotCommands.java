@@ -1,10 +1,14 @@
 package com.github.sereinne.shqlite;
 
 import com.github.sereinne.shqlite.OutputTable.Format;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
 import java.util.Scanner;
@@ -63,7 +67,7 @@ public class DotCommands {
             case ".connection" -> unimplemented(dotCommand);
             case ".crlf" -> unimplemented(dotCommand);
             case ".databases" -> dotDatabases();
-            case ".dbconfig" -> unimplemented(dotCommand);
+            case ".dbconfig" -> dotDBConfig();
             case ".dbinfo" -> unimplemented(dotCommand);
             case ".dbtotxt" -> unimplemented(dotCommand);
             case ".dump" -> unimplemented(dotCommand);
@@ -82,7 +86,10 @@ public class DotCommands {
             case ".help" -> dotHelp();
             case ".import" -> unimplemented(dotCommand);
             case ".imposter" -> unimplemented(dotCommand);
-            case ".indexes" -> unimplemented(dotCommand);
+            case ".indexes" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotIndexes(dotCommandArgs);
+            }
             case ".intck" -> unimplemented(dotCommand);
             case ".limit" -> unimplemented(dotCommand);
             case ".lint" -> unimplemented(dotCommand);
@@ -94,7 +101,10 @@ public class DotCommands {
             case ".once" -> unimplemented(dotCommand);
             case ".output" -> unimplemented(dotCommand);
             case ".parameter" -> unimplemented(dotCommand);
-            case ".print" -> unimplemented(dotCommand);
+            case ".print" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotPrint(dotCommandArgs);
+            }
             case ".progress" -> unimplemented(dotCommand);
             case ".prompt" -> unimplemented(dotCommand);
             case ".quit" -> dotQuit();
@@ -116,10 +126,12 @@ public class DotCommands {
             case ".separator" -> unimplemented(dotCommand);
             case ".session" -> unimplemented(dotCommand);
             case ".sha3sum" -> unimplemented(dotCommand);
-            case ".shell" -> unimplemented(dotCommand);
+            case ".shell", ".system" -> {
+                if (!assertRequiredArgument(dotCommand, dotCommandArgs)) return;
+                dotRunShell(dotCommandArgs);
+            }
             case ".show" -> unimplemented(dotCommand);
             case ".stats" -> unimplemented(dotCommand);
-            case ".system" -> unimplemented(dotCommand);
             case ".tables" -> dotTables();
             case ".timeout" -> unimplemented(dotCommand);
             case ".timer" -> unimplemented(dotCommand);
@@ -143,6 +155,104 @@ public class DotCommands {
                     );
             }
         }
+    }
+
+    public void dotDBConfig() throws Exception {
+        OutputTable dbconfig = new OutputTable(
+            Format.CENTER,
+            "pragma",
+            "value"
+        );
+
+        String[] dbconfigPragmas = {
+            "attach_create",
+            "attach_write",
+            "comments",
+            "defensive",
+            "dqs_ddl",
+            "dqs_dml",
+            "enable_fkey",
+            "enable_qpsg",
+            "enable_trigger",
+            "enable_view",
+            "fts3_tokenizer",
+            "legacy_alter_table",
+            "legacy_file_format",
+            "load_extension",
+            "no_ckpt_on_close",
+            "reset_database",
+            "reverse_scanorder",
+            "stmt_scanstatus",
+            "trigger_eqp",
+            "trusted_schema",
+            "writable_schema",
+        };
+
+        for (String pragma : dbconfigPragmas) {
+            String res = getPragmaValue(pragma);
+            dbconfig.addRow(pragma, res);
+        }
+
+        terminal.writer().println(dbconfig.toString());
+        terminal.flush();
+    }
+
+    private String getPragmaValue(String pragma) {
+        try (ResultSet rs = stmt.executeQuery("PRAGMA " + pragma)) {
+            if (rs.next()) {
+                int intValue = rs.getInt(1);
+                if (rs.wasNull()) {
+                    return "NULL";
+                }
+                return intValue == 0 ? "off" : "on";
+            }
+            // No rows returned
+            return "N/A";
+        } catch (SQLException e) {
+            // PRAGMA not supported or error
+            return "N/A";
+        }
+    }
+
+    public void dotIndexes(String[] args) throws Exception {
+        OutputTable allIndexes = new OutputTable(
+            Format.CENTER,
+            Arrays.asList("indexes")
+        );
+
+        ResultSet indexes = stmt.executeQuery(
+            "SELECT name FROM sqlite_schema WHERE type  AND name NOT LIKE 'sqlite_%' ORDER BY 1"
+        );
+
+        while (indexes.next()) {
+            String tableName = indexes.getString("name");
+            allIndexes.addRow(tableName);
+        }
+
+        terminal.writer().println(allIndexes.toString());
+        terminal.flush();
+    }
+
+    public void dotRunShell(String[] args) throws Exception {
+        // redicret stderr to stdout
+        Process proc = new ProcessBuilder(args)
+            .redirectErrorStream(true)
+            .start();
+        InputStream outputStream = proc.getInputStream();
+        InputStreamReader streamReader = new InputStreamReader(outputStream);
+        BufferedReader bufread = new BufferedReader(streamReader);
+
+        bufread.lines().forEach(line -> terminal.writer().println(line));
+        int exitCode = proc.waitFor();
+        terminal
+            .writer()
+            .println("process terminated with exit code " + exitCode);
+    }
+
+    public void dotPrint(String[] args) {
+        String joined = String.join(" ", args);
+        terminal.writer().println(joined);
+        terminal.flush();
     }
 
     public void dotRestore(String[] args) throws Exception {
