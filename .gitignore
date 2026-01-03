@@ -1,11 +1,1 @@
-# Ignore Gradle project-specific cache directory
-.gradle
-
-# Ignore Gradle build output directory
-build
-
-# Ignore dummy .db files
-*.db
-
-# Ignore binary (.class) files
-app/bin/main/com/github/sereinne/shqlite/*.class
+/target
