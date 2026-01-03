@@ -1,0 +1,10 @@
+[package]
+name = "shqlite"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+prettytable-rs = "0.10.0"
+rusqlite = "0.38.0"
+rustyline = "17.0.1"
