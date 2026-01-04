@@ -1,4 +1,4 @@
-use prettytable::format::{FormatBuilder, LinePosition, LineSeparator};
+use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::{Cell, Row, Table, table};
 use rusqlite::Connection;
 use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
@@ -14,10 +14,72 @@ pub enum Output {
     DumpFile(File),
 }
 
+#[derive(Debug)]
+pub enum TableMode {
+    Ascii,
+    Boxed,
+    Csv,
+    Column,
+    Html,
+    Insert,
+    Json,
+    Line,
+    List,
+    Markdown,
+    Quote,
+    Table,
+    Tabs,
+    Tcl,
+}
+
+impl TableMode {
+    pub fn get_table_format(&self) -> TableFormat {
+        let format: TableFormat = match self {
+            TableMode::Boxed => FormatBuilder::new()
+                .column_separator('│')
+                .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+                .padding(1, 1)
+                .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
+                .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
+                .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
+                .borders('│')
+                .build(),
+            _ => *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE,
+        };
+        return format;
+    }
+}
+
+impl From<&'_ str> for TableMode {
+    fn from(value: &'_ str) -> Self {
+        match value {
+            "ascii" => TableMode::Ascii,
+            "boxed" => TableMode::Boxed,
+            "csv" => TableMode::Csv,
+            "column" => TableMode::Column,
+            "html" => TableMode::Html,
+            "insert" => TableMode::Insert,
+            "json" => TableMode::Json,
+            "line" => TableMode::Line,
+            "list" => TableMode::List,
+            "markdown" => TableMode::Markdown,
+            "quote" => TableMode::Quote,
+            "table" => TableMode::Table,
+            "tabs" => TableMode::Tabs,
+            "tcl" => TableMode::Tcl,
+            _ => {
+                println!("unknown type of mode, defaults to boxed");
+                return TableMode::Boxed;
+            }
+        }
+    }
+}
+
 // MSRV without prettytable: 1.88
 pub struct Shqlite {
     db_conn: Connection,
     output: Output,
+    format: TableMode,
 }
 
 impl Shqlite {
@@ -26,6 +88,7 @@ impl Shqlite {
             db_conn: Connection::open_in_memory()
                 .expect("could not establish a temporary database connection"),
             output: Output::StandardOut,
+            format: TableMode::Boxed,
         };
     }
 
@@ -34,6 +97,7 @@ impl Shqlite {
             db_conn: Connection::open(file_path)
                 .expect("could not establish a persistent database connection"),
             output: Output::StandardOut,
+            format: TableMode::Boxed,
         };
     }
 
@@ -120,17 +184,9 @@ impl Shqlite {
             .expect("unable to query with a prepared statement");
 
         let mut table = Table::new();
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
 
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
         // first row always contains the column name
         table.add_row(Row::new(columns));
         // the rest contains the value of that column
@@ -187,7 +243,7 @@ impl Shqlite {
             ".lint" => Self::dot_lint(dot_cmd_args),
             ".load" => Self::dot_load(dot_cmd_args),
             ".log" => Self::dot_log(dot_cmd_args),
-            ".mode" => Self::dot_mode(dot_cmd_args),
+            ".mode" => self.dot_mode(dot_cmd_args),
             ".nonce" => Self::dot_nonce(dot_cmd_args),
             ".nullvalue" => Self::dot_nullvalue(dot_cmd_args),
             ".once" => Self::dot_once(dot_cmd_args),
@@ -282,16 +338,8 @@ impl Shqlite {
             .expect("could not query .databases");
 
         let mut table = Table::new();
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         table.add_row(Row::new(vec![
             Cell::new("seq"),
@@ -572,17 +620,9 @@ impl Shqlite {
                 "Display output of the next command in web browser"
             ]
         );
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
 
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         match &mut self.output {
             Output::StandardOut => table.printstd(),
@@ -613,16 +653,8 @@ impl Shqlite {
             .expect("could not query .indexes");
 
         let mut table = Table::new();
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         table.add_row(Row::new(vec![Cell::new("indexes")]));
         for index_row in indexes_rows {
@@ -653,8 +685,13 @@ impl Shqlite {
     fn dot_log(_args: &[&str]) {
         todo!("WIP to implement dot_log function")
     }
-    fn dot_mode(_args: &[&str]) {
-        todo!("WIP to implement dot_mode function")
+    fn dot_mode(self: &mut Self, args: &[&str]) {
+        if args.is_empty() {
+            println!("current output mode: {:?}", self.format)
+        }
+
+        let mode = args[0];
+        self.format = TableMode::from(mode);
     }
     fn dot_nonce(_args: &[&str]) {
         todo!("WIP to implement dot_nonce function")
@@ -757,16 +794,8 @@ impl Shqlite {
             .expect("could not run query .schema");
 
         let mut table = Table::new();
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         table.add_row(Row::new(vec![Cell::new("schema")]));
         for schema in schemas {
@@ -833,16 +862,8 @@ impl Shqlite {
             .expect("could not query .tables");
 
         let mut table = Table::new();
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         table.add_row(Row::new(vec![Cell::new("tables")]));
         for row_name_result in table_name_rows {
@@ -888,16 +909,8 @@ impl Shqlite {
             ["version", "date", "timestamp", "hash"],
             [version, date, timestamp, hash]
         );
-        let format = FormatBuilder::new()
-            .column_separator('│')
-            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
-            .padding(1, 1)
-            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
-            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-            .borders('│')
-            .build();
-        table.set_format(format);
+        let fmt = self.format.get_table_format();
+        table.set_format(fmt);
 
         match &mut self.output {
             Output::StandardOut => table.printstd(),
