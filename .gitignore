@@ -1,1 +1,8 @@
+# ignore debug binaries
 /target
+
+# ignore dummy .db files
+*.db
+
+# ignore dummy .sql files
+*.sql

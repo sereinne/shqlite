@@ -5,11 +5,19 @@ use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
 use rusqlite::types::ValueRef;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Command, exit};
+
+pub enum Output {
+    StandardOut,
+    DumpFile(File),
+}
 
 // MSRV without prettytable: 1.88
 pub struct Shqlite {
     db_conn: Connection,
+    output: Output,
 }
 
 impl Shqlite {
@@ -17,6 +25,7 @@ impl Shqlite {
         return Self {
             db_conn: Connection::open_in_memory()
                 .expect("could not establish a temporary database connection"),
+            output: Output::StandardOut,
         };
     }
 
@@ -24,6 +33,7 @@ impl Shqlite {
         return Self {
             db_conn: Connection::open(file_path)
                 .expect("could not establish a persistent database connection"),
+            output: Output::StandardOut,
         };
     }
 
@@ -70,12 +80,10 @@ impl Shqlite {
         let col_count = stmt.column_count();
 
         if col_count == 0 {
-            let row_affected = stmt
-                .execute([])
+            stmt.execute([])
                 .expect("unable to execute with a prepared statement");
 
             println!("Successfully executed command!");
-            println!("Rows affected: {}", row_affected);
             return;
         }
 
@@ -132,7 +140,12 @@ impl Shqlite {
             }
         }
 
-        table.printstd();
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
 
     fn execute_dot_command(self: &mut Self, user_input: &str) {
@@ -151,12 +164,12 @@ impl Shqlite {
             ".clone" => Self::dot_clone(dot_cmd_args),
             ".connection" => Self::dot_connection(dot_cmd_args),
             ".crlf" => Self::dot_crlf(dot_cmd_args),
-            ".databases" => Self::dot_databases(dot_cmd_args),
+            ".databases" => self.dot_databases(dot_cmd_args),
             ".dbconfig" => Self::dot_dbconfig(),
             ".dbinfo" => Self::dot_dbinfo(dot_cmd_args),
             ".dbtotxt" => Self::dot_dbtotxt(dot_cmd_args),
             ".dump" => Self::dot_dump(dot_cmd_args),
-            ".echo" => Self::dot_echo(dot_cmd_args),
+            ".echo" => self.dot_echo(dot_cmd_args),
             ".eqp" => Self::dot_eqp(dot_cmd_args),
             ".excel" => Self::dot_excel(dot_cmd_args),
             ".exit" => Self::dot_exit(dot_cmd_args),
@@ -165,10 +178,10 @@ impl Shqlite {
             ".filectrl" => Self::dot_filectrl(dot_cmd_args),
             ".fullschema" => Self::dot_fullschema(dot_cmd_args),
             ".headers" => Self::dot_headers(dot_cmd_args),
-            ".help" => Self::dot_help(),
+            ".help" => self.dot_help(),
             ".import" => Self::dot_import(dot_cmd_args),
             ".imposter" => Self::dot_imposter(dot_cmd_args),
-            ".indexes" => Self::dot_indexes(dot_cmd_args),
+            ".indexes" => self.dot_indexes(dot_cmd_args),
             ".intck" => Self::dot_intck(dot_cmd_args),
             ".limit" => Self::dot_limit(dot_cmd_args),
             ".lint" => Self::dot_lint(dot_cmd_args),
@@ -178,19 +191,19 @@ impl Shqlite {
             ".nonce" => Self::dot_nonce(dot_cmd_args),
             ".nullvalue" => Self::dot_nullvalue(dot_cmd_args),
             ".once" => Self::dot_once(dot_cmd_args),
-            ".open" => Self::dot_open(dot_cmd_args),
-            ".output" => Self::dot_output(dot_cmd_args),
+            ".open" => self.dot_open(dot_cmd_args),
+            ".output" => self.dot_output(dot_cmd_args),
             ".parameter" => Self::dot_parameter(dot_cmd_args),
-            ".print" => Self::dot_print(dot_cmd_args),
+            ".print" => self.dot_print(dot_cmd_args),
             ".progress" => Self::dot_progress(dot_cmd_args),
             ".prompt" => Self::dot_prompt(dot_cmd_args),
             ".quit" => Self::dot_quit(),
-            ".read" => Self::dot_read(dot_cmd_args),
+            ".read" => self.dot_read(dot_cmd_args),
             ".recover" => Self::dot_recover(dot_cmd_args),
             ".restore" => Self::dot_restore(dot_cmd_args),
             ".save" => Self::dot_save(dot_cmd_args),
             ".scanstats" => Self::dot_scanstats(dot_cmd_args),
-            ".schema" => Self::dot_schema(dot_cmd_args),
+            ".schema" => self.dot_schema(dot_cmd_args),
             ".separator" => Self::dot_separator(dot_cmd_args),
             ".session" => Self::dot_session(dot_cmd_args),
             ".sha3sum" => Self::dot_sha3sum(dot_cmd_args),
@@ -203,7 +216,7 @@ impl Shqlite {
             ".timer" => Self::dot_timer(dot_cmd_args),
             ".trace" => Self::dot_trace(dot_cmd_args),
             ".unmodule" => Self::dot_unmodule(dot_cmd_args),
-            ".version" => Self::dot_version(),
+            ".version" => self.dot_version(),
             ".vfsinfo" => Self::dot_vfsinfo(dot_cmd_args),
             ".vfslist" => Self::dot_vfslist(dot_cmd_args),
             ".vfsname" => Self::dot_vfsname(dot_cmd_args),
@@ -228,8 +241,11 @@ impl Shqlite {
     fn dot_bail(_args: &[&str]) {
         todo!("WIP to implement dot_bail function")
     }
-    fn dot_cd(_args: &[&str]) {
-        todo!("WIP to implement dot_cd function")
+    fn dot_cd(args: &[&str]) {
+        if args.len() == 0 {
+            println!(".cd needs an argument to run");
+            return;
+        }
     }
     fn dot_changes(_args: &[&str]) {
         todo!("WIP to implement dot_changes function")
@@ -246,8 +262,55 @@ impl Shqlite {
     fn dot_crlf(_args: &[&str]) {
         todo!("WIP to implement dot_crlf function")
     }
-    fn dot_databases(_args: &[&str]) {
-        todo!("WIP to implement dot_databases function")
+    fn dot_databases(self: &mut Self, _args: &[&str]) {
+        let mut stmt = self
+            .db_conn
+            .prepare("SELECT seq , name , file FROM pragma_database_list")
+            .expect("unable to create prepared statement");
+
+        let db_infos = stmt
+            .query_map([], |row| {
+                let mut db_info_row: Vec<Cell> = Vec::with_capacity(3);
+                let seq = row.get::<_, u32>(0).expect("can't get seq columns");
+                db_info_row.push(Cell::new(&seq.to_string()));
+                let name = row.get::<_, String>(1).expect("can't get name columns");
+                db_info_row.push(Cell::new(&name));
+                let file = row.get::<_, String>(2).expect("can't get file columns");
+                db_info_row.push(Cell::new(&file));
+                Ok(db_info_row)
+            })
+            .expect("could not query .databases");
+
+        let mut table = Table::new();
+        let format = FormatBuilder::new()
+            .column_separator('│')
+            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+            .padding(1, 1)
+            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
+            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
+            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
+            .borders('│')
+            .build();
+        table.set_format(format);
+
+        table.add_row(Row::new(vec![
+            Cell::new("seq"),
+            Cell::new("name"),
+            Cell::new("file"),
+        ]));
+
+        for db_info in db_infos {
+            if let Ok(info) = db_info {
+                table.add_row(Row::new(info));
+            }
+        }
+
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
     fn dot_dbconfig() {}
     fn dot_dbinfo(_args: &[&str]) {
@@ -259,8 +322,8 @@ impl Shqlite {
     fn dot_dump(_args: &[&str]) {
         todo!("WIP to implement dot_dump function")
     }
-    fn dot_echo(args: &[&str]) {
-        Self::dot_print(args);
+    fn dot_echo(self: &mut Self, args: &[&str]) {
+        self.dot_print(args);
     }
     fn dot_eqp(_args: &[&str]) {
         todo!("WIP to implement dot_eqp function")
@@ -290,7 +353,7 @@ impl Shqlite {
     fn dot_headers(_args: &[&str]) {
         todo!("WIP to implement dot_headers function")
     }
-    fn dot_help() {
+    fn dot_help(self: &mut Self) {
         let mut table = table!(
             [".archive", "...", "Manage SQL archives"],
             [".auth", "ON|OFF", "Show authorizer callbacks"],
@@ -520,7 +583,13 @@ impl Shqlite {
             .build();
 
         table.set_format(format);
-        table.printstd();
+
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
     fn dot_import(_args: &[&str]) {
         todo!("WIP to implement dot_import function")
@@ -528,8 +597,46 @@ impl Shqlite {
     fn dot_imposter(_args: &[&str]) {
         todo!("WIP to implement dot_imposter function")
     }
-    fn dot_indexes(_args: &[&str]) {
-        todo!("WIP to implement dot_indexes function")
+    fn dot_indexes(self: &mut Self, _args: &[&str]) {
+        let mut stmt = self
+            .db_conn
+            .prepare(
+                "SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
+            )
+            .expect("unable to create prepared statement");
+
+        let indexes_rows = stmt
+            .query_map([], |row| {
+                let name = row.get::<_, String>(0).expect("can't get name columns");
+                Ok(name)
+            })
+            .expect("could not query .indexes");
+
+        let mut table = Table::new();
+        let format = FormatBuilder::new()
+            .column_separator('│')
+            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+            .padding(1, 1)
+            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
+            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
+            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
+            .borders('│')
+            .build();
+        table.set_format(format);
+
+        table.add_row(Row::new(vec![Cell::new("indexes")]));
+        for index_row in indexes_rows {
+            if let Ok(index_name) = index_row {
+                table.add_row(Row::new(vec![Cell::new(&index_name)]));
+            }
+        }
+
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
     fn dot_intck(_args: &[&str]) {
         todo!("WIP to implement dot_intck function")
@@ -558,18 +665,43 @@ impl Shqlite {
     fn dot_once(_args: &[&str]) {
         todo!("WIP to implement dot_once function")
     }
-    fn dot_open(_args: &[&str]) {
-        todo!("WIP to implement dot_open function")
+    fn dot_open(self: &mut Self, args: &[&str]) {
+        if args.len() == 0 {
+            println!(".open needs at least one argument");
+            return;
+        }
+        let new_conn = Connection::open(args[0]).expect(
+            "unable to connect to db or file path can't be converted into C-compatible strings",
+        );
+        self.db_conn = new_conn;
     }
-    fn dot_output(_args: &[&str]) {
-        todo!("WIP to implement dot_output function")
+    fn dot_output(self: &mut Self, args: &[&str]) {
+        if args.len() == 0 {
+            println!(".output needs at least one argument");
+            return;
+        }
+        let new_dump_file =
+            File::open(args[0]).unwrap_or(File::create(args[0]).expect("unable to create file"));
+        self.output = Output::DumpFile(new_dump_file);
     }
     fn dot_parameter(_args: &[&str]) {
         todo!("WIP to implement dot_parameter function")
     }
-    fn dot_print(args: &[&str]) {
-        for arg in args {
-            println!("{}", arg);
+    fn dot_print(self: &mut Self, args: &[&str]) {
+        match &mut self.output {
+            Output::StandardOut => {
+                for arg in args {
+                    println!("{}", arg);
+                }
+            }
+            Output::DumpFile(file) => {
+                let mut bufwriter = BufWriter::new(file);
+                for arg in args {
+                    bufwriter
+                        .write(arg.as_bytes())
+                        .expect("can't write to file");
+                }
+            }
         }
     }
     fn dot_progress(_args: &[&str]) {
@@ -583,8 +715,21 @@ impl Shqlite {
     fn dot_quit() {
         exit(0)
     }
-    fn dot_read(_args: &[&str]) {
-        todo!("WIP to implement dot_read function")
+    fn dot_read(self: &mut Self, args: &[&str]) {
+        if args.len() < 1 {
+            println!(".read command needs an argument");
+            return;
+        }
+        let db_file = File::open(args[0]).expect("unable to open file");
+        let reader = BufReader::new(db_file);
+        reader.split(b';').for_each(|sql| {
+            let sql = sql.expect("unable to unwrap into vector of u8s");
+            let sql_str = String::from_utf8(sql).expect("detected a non-utf8 compatible character");
+            let trimmed = sql_str.trim();
+            if !trimmed.is_empty() {
+                self.execute_user_query(trimmed);
+            }
+        });
     }
     fn dot_recover(_args: &[&str]) {
         todo!("WIP to implement dot_recover function")
@@ -598,8 +743,44 @@ impl Shqlite {
     fn dot_scanstats(_args: &[&str]) {
         todo!("WIP to implement dot_scanstats function")
     }
-    fn dot_schema(_args: &[&str]) {
-        todo!("WIP to implement dot_schema function")
+    fn dot_schema(self: &mut Self, _args: &[&str]) {
+        let mut stmt = self
+            .db_conn
+            .prepare("SELECT sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%' ORDER BY tbl_name, type DESC, name")
+            .expect("unable to create prepared statement");
+
+        let schemas = stmt
+            .query_map([], |row| {
+                let schema = row.get::<_, String>(0).expect("can't get name columns");
+                Ok(schema)
+            })
+            .expect("could not run query .schema");
+
+        let mut table = Table::new();
+        let format = FormatBuilder::new()
+            .column_separator('│')
+            .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+            .padding(1, 1)
+            .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
+            .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
+            .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
+            .borders('│')
+            .build();
+        table.set_format(format);
+
+        table.add_row(Row::new(vec![Cell::new("schema")]));
+        for schema in schemas {
+            if let Ok(schema_name) = schema {
+                table.add_row(Row::new(vec![Cell::new(&schema_name)]));
+            }
+        }
+
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
     fn dot_separator(_args: &[&str]) {
         todo!("WIP to implement dot_separator function")
@@ -634,7 +815,7 @@ impl Shqlite {
             str::from_utf8(&output.stdout).expect("found non utf-8")
         );
     }
-    fn dot_tables(self: &Self) {
+    fn dot_tables(self: &mut Self) {
         let mut stmt = self
             .db_conn
             .prepare(
@@ -642,7 +823,7 @@ impl Shqlite {
         WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%'
         ORDER BY 1",
             )
-            .expect("unable to create statement");
+            .expect("unable to create prepared statement");
 
         let table_name_rows = stmt
             .query_map([], |row| {
@@ -670,7 +851,12 @@ impl Shqlite {
             }
         }
 
-        table.printstd();
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
     fn dot_timeout(_args: &[&str]) {
         todo!("WIP to implement dot_timeout function")
@@ -684,7 +870,7 @@ impl Shqlite {
     fn dot_unmodule(_args: &[&str]) {
         todo!("WIP to implement dot_unmodule function")
     }
-    fn dot_version() {
+    fn dot_version(self: &mut Self) {
         let version: &str = SQLITE_VERSION
             .to_str()
             .expect("version string has a non-utf 8 character");
@@ -712,7 +898,13 @@ impl Shqlite {
             .borders('│')
             .build();
         table.set_format(format);
-        table.printstd();
+
+        match &mut self.output {
+            Output::StandardOut => table.printstd(),
+            Output::DumpFile(file) => {
+                table.print(file).expect("unable to write to file");
+            }
+        }
     }
 
     fn dot_vfsinfo(_args: &[&str]) {
