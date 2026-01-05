@@ -1,3 +1,4 @@
+use clap::Parser;
 use prettytable::format::Alignment;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::{Cell, Row, Table, table};
@@ -8,6 +9,7 @@ use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::path::Path;
 use std::process::{Command, exit};
 use std::vec;
 
@@ -108,6 +110,42 @@ impl From<&'_ str> for TableMode {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(name = "shqlite")]
+#[command(about = "A simple terminal `sqlite` client in Rust", long_about = None)]
+pub struct App {
+    /// path to database file
+    #[arg(short, long, default_value = "")]
+    path: String,
+
+    /// table format (.mode)
+    #[arg(short, long, default_value = "boxed", value_parser = clap::builder::PossibleValuesParser::new([
+        "ascii",
+        "boxed",
+        "csv",
+        "column",
+        "html",
+        "insert",
+        "json",
+        "line",
+        "list",
+        "markdown",
+        "quote",
+        "table",
+        "tabs",
+        "tcl"
+    ]))]
+    mode: String,
+
+    /// where to output query results
+    #[arg(short, long, default_value = "")]
+    output: String,
+
+    /// sql or dot command to execute before going into the shell
+    #[arg(short, long)]
+    query: Option<String>,
+}
+
 // MSRV without prettytable: 1.88
 pub struct Shqlite {
     db_conn: Connection,
@@ -128,23 +166,49 @@ impl Default for Shqlite {
 
 impl Shqlite {
     pub fn new() -> Self {
-        Self {
-            db_conn: Connection::open_in_memory()
-                .expect("could not establish a temporary database connection"),
-            output: Output::StandardOut,
-            format: TableMode::Boxed,
-        }
+        Self::default()
     }
 
-    pub fn with_db(file_path: &str) -> Self {
-        Self {
-            db_conn: Connection::open(file_path)
-                .expect("could not establish a persistent database connection"),
-            output: Output::StandardOut,
-            format: TableMode::Boxed,
+    pub fn set_conn(mut self, path: &str) -> Self {
+        if !path.is_empty() {
+            self.db_conn = Connection::open(path).expect("unable to open db file");
+            return self;
         }
+        self
     }
 
+    pub fn set_format(mut self, fmt: &str) -> Self {
+        if !fmt.is_empty() {
+            self.format = TableMode::from(fmt);
+            return self;
+        }
+        self
+    }
+
+    pub fn set_output(mut self, out: &str) -> Self {
+        if !out.is_empty() {
+            let path = Path::new(out);
+
+            if !path.exists() {
+                let file = File::create_new(path).expect("unable to create file");
+                self.output = Output::DumpFile(file);
+                return self;
+            }
+
+            let file = File::open(path).expect("unable to open file");
+            self.output = Output::DumpFile(file);
+            return self;
+        }
+        self
+    }
+
+    pub fn build(self) -> Self {
+        Self {
+            db_conn: self.db_conn,
+            format: self.format,
+            output: self.output,
+        }
+    }
     pub fn start_repl(&mut self) -> rustyline::Result<()> {
         let mut editor = DefaultEditor::new()?;
         loop {
@@ -1048,7 +1112,15 @@ impl Shqlite {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut shqlite = Shqlite::with_db("./mahasiswa.db");
+    let app = App::parse();
+
+    let mut shqlite = Shqlite::default()
+        .set_conn(&app.path)
+        .set_format(&app.mode)
+        .set_output(&app.output)
+        .build();
+
     shqlite.start_repl()?;
+
     Ok(())
 }
