@@ -323,7 +323,7 @@ impl Shqlite {
         match dot_cmd {
             ".archive" => Self::dot_archive(dot_cmd_args),
             ".auth" => Self::dot_auth(dot_cmd_args),
-            ".backup" => Self::dot_backup(dot_cmd_args),
+            ".backup" => self.dot_backup(dot_cmd_args),
             ".bail" => Self::dot_bail(dot_cmd_args),
             ".cd" => Self::dot_cd(dot_cmd_args),
             ".changes" => Self::dot_changes(dot_cmd_args),
@@ -368,7 +368,7 @@ impl Shqlite {
             ".read" => self.dot_read(dot_cmd_args),
             ".recover" => Self::dot_recover(dot_cmd_args),
             ".restore" => Self::dot_restore(dot_cmd_args),
-            ".save" => Self::dot_save(dot_cmd_args),
+            ".save" => self.dot_save(dot_cmd_args),
             ".scanstats" => Self::dot_scanstats(dot_cmd_args),
             ".schema" => self.dot_schema(dot_cmd_args),
             ".separator" => Self::dot_separator(dot_cmd_args),
@@ -402,8 +402,8 @@ impl Shqlite {
     fn dot_auth(_args: &[&str]) {
         todo!("WIP to implement dot_auth function")
     }
-    fn dot_backup(_args: &[&str]) {
-        todo!("WIP to implement dot_backup function")
+    fn dot_backup(&self, args: &[&str]) {
+        self.dot_save(args);
     }
     fn dot_bail(_args: &[&str]) {
         todo!("WIP to implement dot_bail function")
@@ -912,8 +912,20 @@ impl Shqlite {
     fn dot_restore(_args: &[&str]) {
         todo!("WIP to implement dot_restore function")
     }
-    fn dot_save(_args: &[&str]) {
-        todo!("WIP to implement dot_save function")
+    fn dot_save(&self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".save needs an argument");
+            return;
+        }
+
+        if args[0].is_empty() {
+            eprintln!(".save needs a valid file path");
+            return;
+        }
+
+        let sql = format!("VACUUM INTO '{}'", args[0]);
+        let _ = self.db_conn.execute(&sql, []);
+        println!("successfully backup/save database!")
     }
     fn dot_scanstats(_args: &[&str]) {
         todo!("WIP to implement dot_scanstats function")
