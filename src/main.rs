@@ -1,3 +1,4 @@
+use prettytable::format::Alignment;
 use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
 use prettytable::{Cell, Row, Table, table};
 use rusqlite::Connection;
@@ -8,15 +9,19 @@ use rustyline::error::ReadlineError;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Command, exit};
+use std::vec;
 
+#[derive(Default)]
 pub enum Output {
+    #[default]
     StandardOut,
     DumpFile(File),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum TableMode {
     Ascii,
+    #[default]
     Boxed,
     Csv,
     Column,
@@ -34,19 +39,47 @@ pub enum TableMode {
 
 impl TableMode {
     pub fn get_table_format(&self) -> TableFormat {
-        let format: TableFormat = match self {
+        match self {
+            TableMode::Table => *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE,
+            TableMode::Tabs => FormatBuilder::new()
+                .column_separator('\t')
+                .padding(0, 0)
+                .indent(0)
+                .build(),
+            TableMode::Csv => FormatBuilder::new()
+                .column_separator(',')
+                .padding(0, 0)
+                .indent(0)
+                .build(),
+            TableMode::Column => FormatBuilder::new()
+                .column_separator(' ')
+                .separator(LinePosition::Title, LineSeparator::new('-', ' ', ' ', ' '))
+                .padding(0, 0)
+                .build(),
+            TableMode::Markdown => FormatBuilder::new()
+                .column_separator('|')
+                .borders('|')
+                .separator(LinePosition::Title, LineSeparator::new('-', '|', '|', '|'))
+                .padding(1, 1)
+                .build(),
+            TableMode::List => FormatBuilder::new()
+                .column_separator('|')
+                .padding(0, 0)
+                .indent(0)
+                .build(),
             TableMode::Boxed => FormatBuilder::new()
                 .column_separator('│')
-                .separator(LinePosition::Intern, LineSeparator::new('─', '┼', '├', '┤'))
+                .separator(LinePosition::Title, LineSeparator::new('─', '┼', '├', '┤'))
                 .padding(1, 1)
-                .separator(LinePosition::Title, LineSeparator::new('─', '┴', '┤', '├'))
                 .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
                 .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
                 .borders('│')
                 .build(),
-            _ => *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE,
-        };
-        return format;
+            _ => {
+                println!("unsupported format!");
+                *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE
+            }
+        }
     }
 }
 
@@ -69,7 +102,7 @@ impl From<&'_ str> for TableMode {
             "tcl" => TableMode::Tcl,
             _ => {
                 println!("unknown type of mode, defaults to boxed");
-                return TableMode::Boxed;
+                TableMode::Boxed
             }
         }
     }
@@ -82,26 +115,37 @@ pub struct Shqlite {
     format: TableMode,
 }
 
-impl Shqlite {
-    pub fn new() -> Self {
-        return Self {
+impl Default for Shqlite {
+    fn default() -> Self {
+        Self {
             db_conn: Connection::open_in_memory()
                 .expect("could not establish a temporary database connection"),
             output: Output::StandardOut,
             format: TableMode::Boxed,
-        };
+        }
+    }
+}
+
+impl Shqlite {
+    pub fn new() -> Self {
+        Self {
+            db_conn: Connection::open_in_memory()
+                .expect("could not establish a temporary database connection"),
+            output: Output::StandardOut,
+            format: TableMode::Boxed,
+        }
     }
 
     pub fn with_db(file_path: &str) -> Self {
-        return Self {
+        Self {
             db_conn: Connection::open(file_path)
                 .expect("could not establish a persistent database connection"),
             output: Output::StandardOut,
             format: TableMode::Boxed,
-        };
+        }
     }
 
-    pub fn start_repl(self: &mut Self) -> rustyline::Result<()> {
+    pub fn start_repl(&mut self) -> rustyline::Result<()> {
         let mut editor = DefaultEditor::new()?;
         loop {
             let input = editor.readline("shqlite> ");
@@ -112,11 +156,11 @@ impl Shqlite {
         }
     }
 
-    fn handle_user_input(self: &mut Self, user_input: &str) {
+    fn handle_user_input(&mut self, user_input: &str) {
         if user_input.starts_with(".") {
-            self.execute_dot_command(&user_input);
+            self.execute_dot_command(user_input);
         } else {
-            self.execute_user_query(&user_input);
+            self.execute_user_query(user_input);
         }
     }
     fn handle_readline_err(err: ReadlineError) {
@@ -136,7 +180,7 @@ impl Shqlite {
         }
     }
 
-    fn execute_user_query(self: &mut Self, query: &str) {
+    fn execute_user_query(&mut self, query: &str) {
         let mut stmt = self
             .db_conn
             .prepare(query)
@@ -157,7 +201,9 @@ impl Shqlite {
             let colname = stmt
                 .column_name(col_idx)
                 .expect("out of bound index of column");
-            columns.push(Cell::new(colname));
+            let mut cell = Cell::new(colname);
+            cell.align(Alignment::CENTER);
+            columns.push(cell);
         }
 
         let mapped_rows = stmt
@@ -187,13 +233,14 @@ impl Shqlite {
 
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
-        // first row always contains the column name
-        table.add_row(Row::new(columns));
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(Row::new(columns)),
+        }
         // the rest contains the value of that column
-        for row_result in mapped_rows {
-            if let Ok(row) = row_result {
-                table.add_row(Row::new(row));
-            }
+        for row_result in mapped_rows.flatten() {
+            table.add_row(Row::new(row_result));
         }
 
         match &mut self.output {
@@ -204,7 +251,7 @@ impl Shqlite {
         }
     }
 
-    fn execute_dot_command(self: &mut Self, user_input: &str) {
+    fn execute_dot_command(&mut self, user_input: &str) {
         let dot_cmd_with_args = user_input.split(" ").collect::<Vec<_>>();
         let dot_cmd: &str = dot_cmd_with_args[0];
         let dot_cmd_args = &dot_cmd_with_args[1..];
@@ -263,10 +310,10 @@ impl Shqlite {
             ".separator" => Self::dot_separator(dot_cmd_args),
             ".session" => Self::dot_session(dot_cmd_args),
             ".sha3sum" => Self::dot_sha3sum(dot_cmd_args),
-            ".shell" => Self::dot_shell(dot_cmd_args),
+            ".shell" => self.dot_shell(dot_cmd_args),
             ".show" => Self::dot_show(dot_cmd_args),
             ".stats" => Self::dot_stats(dot_cmd_args),
-            ".system" => Self::dot_system(dot_cmd_args),
+            ".system" => self.dot_system(dot_cmd_args),
             ".tables" => self.dot_tables(),
             ".timeout" => Self::dot_timeout(dot_cmd_args),
             ".timer" => Self::dot_timer(dot_cmd_args),
@@ -298,9 +345,8 @@ impl Shqlite {
         todo!("WIP to implement dot_bail function")
     }
     fn dot_cd(args: &[&str]) {
-        if args.len() == 0 {
+        if args.is_empty() {
             println!(".cd needs an argument to run");
-            return;
         }
     }
     fn dot_changes(_args: &[&str]) {
@@ -318,7 +364,7 @@ impl Shqlite {
     fn dot_crlf(_args: &[&str]) {
         todo!("WIP to implement dot_crlf function")
     }
-    fn dot_databases(self: &mut Self, _args: &[&str]) {
+    fn dot_databases(&mut self, _args: &[&str]) {
         let mut stmt = self
             .db_conn
             .prepare("SELECT seq , name , file FROM pragma_database_list")
@@ -338,19 +384,26 @@ impl Shqlite {
             .expect("could not query .databases");
 
         let mut table = Table::new();
+
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
 
-        table.add_row(Row::new(vec![
-            Cell::new("seq"),
-            Cell::new("name"),
-            Cell::new("file"),
-        ]));
+        let mut seq = Cell::new("seq");
+        seq.align(Alignment::CENTER);
+        let mut name = Cell::new("name");
+        name.align(Alignment::CENTER);
+        let mut file = Cell::new("file");
+        file.align(Alignment::CENTER);
 
-        for db_info in db_infos {
-            if let Ok(info) = db_info {
-                table.add_row(Row::new(info));
-            }
+        let title = Row::new(vec![seq, name, file]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(title),
+        }
+
+        for db_info in db_infos.flatten() {
+            table.add_row(Row::new(db_info));
         }
 
         match &mut self.output {
@@ -370,7 +423,7 @@ impl Shqlite {
     fn dot_dump(_args: &[&str]) {
         todo!("WIP to implement dot_dump function")
     }
-    fn dot_echo(self: &mut Self, args: &[&str]) {
+    fn dot_echo(&mut self, args: &[&str]) {
         self.dot_print(args);
     }
     fn dot_eqp(_args: &[&str]) {
@@ -380,7 +433,7 @@ impl Shqlite {
         todo!("WIP to implement dot_excel function")
     }
     fn dot_exit(args: &[&str]) {
-        if args.len() == 0 {
+        if args.is_empty() {
             exit(0);
         }
         let exit_code = args[0].parse::<i32>().expect("unable to parse integer");
@@ -401,7 +454,7 @@ impl Shqlite {
     fn dot_headers(_args: &[&str]) {
         todo!("WIP to implement dot_headers function")
     }
-    fn dot_help(self: &mut Self) {
+    fn dot_help(&mut self) {
         let mut table = table!(
             [".archive", "...", "Manage SQL archives"],
             [".auth", "ON|OFF", "Show authorizer callbacks"],
@@ -624,6 +677,20 @@ impl Shqlite {
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
 
+        let mut command = Cell::new("command");
+        command.align(Alignment::CENTER);
+        let mut args = Cell::new("args");
+        args.align(Alignment::CENTER);
+        let mut desc = Cell::new("description");
+        desc.align(Alignment::CENTER);
+
+        let info_row = Row::new(vec![command, args, desc]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(info_row),
+        }
+
         match &mut self.output {
             Output::StandardOut => table.printstd(),
             Output::DumpFile(file) => {
@@ -637,7 +704,7 @@ impl Shqlite {
     fn dot_imposter(_args: &[&str]) {
         todo!("WIP to implement dot_imposter function")
     }
-    fn dot_indexes(self: &mut Self, _args: &[&str]) {
+    fn dot_indexes(&mut self, _args: &[&str]) {
         let mut stmt = self
             .db_conn
             .prepare(
@@ -656,11 +723,17 @@ impl Shqlite {
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
 
-        table.add_row(Row::new(vec![Cell::new("indexes")]));
-        for index_row in indexes_rows {
-            if let Ok(index_name) = index_row {
-                table.add_row(Row::new(vec![Cell::new(&index_name)]));
-            }
+        let mut indexes_cell = Cell::new("indexes");
+        indexes_cell.align(Alignment::CENTER);
+        let index_row = Row::new(vec![indexes_cell]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(index_row),
+        }
+
+        for index_row in indexes_rows.flatten() {
+            table.add_row(Row::new(vec![Cell::new(&index_row)]));
         }
 
         match &mut self.output {
@@ -685,7 +758,7 @@ impl Shqlite {
     fn dot_log(_args: &[&str]) {
         todo!("WIP to implement dot_log function")
     }
-    fn dot_mode(self: &mut Self, args: &[&str]) {
+    fn dot_mode(&mut self, args: &[&str]) {
         if args.is_empty() {
             println!("current output mode: {:?}", self.format)
         }
@@ -702,8 +775,8 @@ impl Shqlite {
     fn dot_once(_args: &[&str]) {
         todo!("WIP to implement dot_once function")
     }
-    fn dot_open(self: &mut Self, args: &[&str]) {
-        if args.len() == 0 {
+    fn dot_open(&mut self, args: &[&str]) {
+        if args.is_empty() {
             println!(".open needs at least one argument");
             return;
         }
@@ -712,8 +785,8 @@ impl Shqlite {
         );
         self.db_conn = new_conn;
     }
-    fn dot_output(self: &mut Self, args: &[&str]) {
-        if args.len() == 0 {
+    fn dot_output(&mut self, args: &[&str]) {
+        if args.is_empty() {
             println!(".output needs at least one argument");
             return;
         }
@@ -724,7 +797,7 @@ impl Shqlite {
     fn dot_parameter(_args: &[&str]) {
         todo!("WIP to implement dot_parameter function")
     }
-    fn dot_print(self: &mut Self, args: &[&str]) {
+    fn dot_print(&mut self, args: &[&str]) {
         match &mut self.output {
             Output::StandardOut => {
                 for arg in args {
@@ -734,9 +807,10 @@ impl Shqlite {
             Output::DumpFile(file) => {
                 let mut bufwriter = BufWriter::new(file);
                 for arg in args {
-                    bufwriter
+                    let bytes_writen = bufwriter
                         .write(arg.as_bytes())
                         .expect("can't write to file");
+                    println!("written {}", bytes_writen);
                 }
             }
         }
@@ -752,8 +826,8 @@ impl Shqlite {
     fn dot_quit() {
         exit(0)
     }
-    fn dot_read(self: &mut Self, args: &[&str]) {
-        if args.len() < 1 {
+    fn dot_read(&mut self, args: &[&str]) {
+        if args.is_empty() {
             println!(".read command needs an argument");
             return;
         }
@@ -780,7 +854,7 @@ impl Shqlite {
     fn dot_scanstats(_args: &[&str]) {
         todo!("WIP to implement dot_scanstats function")
     }
-    fn dot_schema(self: &mut Self, _args: &[&str]) {
+    fn dot_schema(&mut self, _args: &[&str]) {
         let mut stmt = self
             .db_conn
             .prepare("SELECT sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%' ORDER BY tbl_name, type DESC, name")
@@ -797,11 +871,17 @@ impl Shqlite {
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
 
-        table.add_row(Row::new(vec![Cell::new("schema")]));
-        for schema in schemas {
-            if let Ok(schema_name) = schema {
-                table.add_row(Row::new(vec![Cell::new(&schema_name)]));
-            }
+        let mut title = Cell::new("schema");
+        title.align(Alignment::CENTER);
+        let row_title = Row::new(vec![title]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(row_title),
+        }
+
+        for schema in schemas.flatten() {
+            table.add_row(Row::new(vec![Cell::new(&schema)]));
         }
 
         match &mut self.output {
@@ -820,8 +900,8 @@ impl Shqlite {
     fn dot_sha3sum(_args: &[&str]) {
         todo!("WIP to implement dot_sha3sum function")
     }
-    fn dot_shell(args: &[&str]) {
-        Self::dot_system(args);
+    fn dot_shell(&mut self, args: &[&str]) {
+        self.dot_system(args);
     }
     fn dot_show(_args: &[&str]) {
         todo!("WIP to implement dot_show function")
@@ -829,22 +909,32 @@ impl Shqlite {
     fn dot_stats(_args: &[&str]) {
         todo!("WIP to implement dot_stats function")
     }
-    fn dot_system(args: &[&str]) {
-        if args.len() <= 1 {
+    fn dot_system(&mut self, args: &[&str]) {
+        if args.is_empty() {
             println!(".system needs at least one argument");
-            return;
         }
         let output = Command::new(args[0])
             .args(&args[1..])
             .output()
             .expect("unable to execute command");
 
-        println!(
-            "{:?}",
-            str::from_utf8(&output.stdout).expect("found non utf-8")
-        );
+        match &mut self.output {
+            Output::StandardOut => {
+                println!(
+                    "{:?}",
+                    str::from_utf8(&output.stdout).expect("found non utf-8")
+                );
+            }
+            Output::DumpFile(file) => {
+                let mut bufwriter = BufWriter::new(file);
+                let bytes_written = bufwriter
+                    .write(&output.stdout)
+                    .expect("can't write to files");
+                println!("bytes written {}", bytes_written);
+            }
+        }
     }
-    fn dot_tables(self: &mut Self) {
+    fn dot_tables(&mut self) {
         let mut stmt = self
             .db_conn
             .prepare(
@@ -865,11 +955,17 @@ impl Shqlite {
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
 
-        table.add_row(Row::new(vec![Cell::new("tables")]));
-        for row_name_result in table_name_rows {
-            if let Ok(row_name) = row_name_result {
-                table.add_row(Row::new(vec![Cell::new(&row_name)]));
-            }
+        let mut tables_cell = Cell::new("tables");
+        tables_cell.align(Alignment::CENTER);
+        let table_row = Row::new(vec![tables_cell]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(table_row),
+        }
+
+        for row_name_result in table_name_rows.flatten() {
+            table.add_row(Row::new(vec![Cell::new(&row_name_result)]));
         }
 
         match &mut self.output {
@@ -891,7 +987,7 @@ impl Shqlite {
     fn dot_unmodule(_args: &[&str]) {
         todo!("WIP to implement dot_unmodule function")
     }
-    fn dot_version(self: &mut Self) {
+    fn dot_version(&mut self) {
         let version: &str = SQLITE_VERSION
             .to_str()
             .expect("version string has a non-utf 8 character");
@@ -905,12 +1001,26 @@ impl Shqlite {
         let timestamp = sqlite_source_id.next().expect("unable to get timestamp");
         let hash = sqlite_source_id.next().expect("unable to get hash");
 
-        let mut table = table!(
-            ["version", "date", "timestamp", "hash"],
-            [version, date, timestamp, hash]
-        );
+        let mut table = table!([version, date, timestamp, hash]);
         let fmt = self.format.get_table_format();
         table.set_format(fmt);
+
+        let mut version = Cell::new("version");
+        let mut date = Cell::new("date");
+        let mut timestamp = Cell::new("timestamp");
+        let mut hash = Cell::new("hash");
+
+        version.align(Alignment::CENTER);
+        date.align(Alignment::CENTER);
+        timestamp.align(Alignment::CENTER);
+        hash.align(Alignment::CENTER);
+
+        let version_info = Row::new(vec![version, date, timestamp, hash]);
+
+        match self.format {
+            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            _ => table.set_titles(version_info),
+        }
 
         match &mut self.output {
             Output::StandardOut => table.printstd(),
