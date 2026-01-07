@@ -1,4 +1,5 @@
 pub mod app;
+mod consts;
 pub mod shqlite;
 
 use crate::app::App;

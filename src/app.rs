@@ -34,6 +34,13 @@ pub struct App {
     /// run "COMMAND" before reading stdin
     #[arg(short, long)]
     pub(crate) cmd: Option<String>,
+
+    /// turn headers on or off
+    #[arg(long, overrides_with = "_no_header")]
+    pub(crate) header: bool,
+
+    #[arg(long = "no-header")]
+    pub(crate) _no_header: bool,
 }
 
 impl From<App> for Shqlite {
@@ -41,6 +48,10 @@ impl From<App> for Shqlite {
         let mut shqlite = Self::default();
 
         shqlite.set_format(value.mode);
+
+        if value.header {
+            shqlite.set_header();
+        }
 
         if let Some(cmd) = value.cmd {
             shqlite.set_command(cmd);

@@ -1,22 +1,33 @@
+use crate::consts::HELP_COMMANDS;
 use prettytable::format::Alignment;
-use prettytable::format::{FormatBuilder, LinePosition, LineSeparator, TableFormat};
-use prettytable::{Cell, Row, Table, table};
+use prettytable::format::TableFormat;
+use prettytable::{Cell, Row, Table, row, table};
 use rusqlite::Connection;
 use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
 use rusqlite::types::ValueRef;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::fs::File;
+use std::io::Stdout;
+use std::io::stdout;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, exit};
 use std::vec;
 
-#[derive(Default)]
 pub enum Output {
-    #[default]
-    StandardOut,
-    DumpFile(File),
+    BufferedStdout(BufWriter<Stdout>),
+    BufferedFile(BufWriter<File>),
+}
+
+impl Output {
+    pub fn flush(&mut self) {
+        match self {
+            Output::BufferedStdout(out) => out.flush().expect("unable to flush"),
+            Output::BufferedFile(file) => file.flush().expect("unable to flush"),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -42,40 +53,12 @@ impl TableMode {
     pub fn get_table_format(&self) -> TableFormat {
         match self {
             TableMode::Table => *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE,
-            TableMode::Tabs => FormatBuilder::new()
-                .column_separator('\t')
-                .padding(0, 0)
-                .indent(0)
-                .build(),
-            TableMode::Csv => FormatBuilder::new()
-                .column_separator(',')
-                .padding(0, 0)
-                .indent(0)
-                .build(),
-            TableMode::Column => FormatBuilder::new()
-                .column_separator(' ')
-                .separator(LinePosition::Title, LineSeparator::new('-', ' ', ' ', ' '))
-                .padding(0, 0)
-                .build(),
-            TableMode::Markdown => FormatBuilder::new()
-                .column_separator('|')
-                .borders('|')
-                .separator(LinePosition::Title, LineSeparator::new('-', '|', '|', '|'))
-                .padding(1, 1)
-                .build(),
-            TableMode::List => FormatBuilder::new()
-                .column_separator('|')
-                .padding(0, 0)
-                .indent(0)
-                .build(),
-            TableMode::Boxed => FormatBuilder::new()
-                .column_separator('│')
-                .separator(LinePosition::Title, LineSeparator::new('─', '┼', '├', '┤'))
-                .padding(1, 1)
-                .separator(LinePosition::Bottom, LineSeparator::new('─', '┴', '╰', '╯'))
-                .separator(LinePosition::Top, LineSeparator::new('─', '┬', '╭', '╮'))
-                .borders('│')
-                .build(),
+            TableMode::Tabs => *crate::consts::TABS,
+            TableMode::Csv => *crate::consts::CSV,
+            TableMode::Column => *crate::consts::COLUMN,
+            TableMode::Markdown => *crate::consts::MARKDOWN,
+            TableMode::List => *crate::consts::LIST,
+            TableMode::Boxed => *crate::consts::BOXED,
             _ => {
                 println!("unsupported format!");
                 *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE
@@ -114,6 +97,9 @@ pub struct Shqlite {
     output: Output,
     format: TableMode,
     command: Option<String>,
+    cwd: PathBuf,
+    with_header: bool,
+    with_echo: bool,
 }
 
 impl Default for Shqlite {
@@ -121,9 +107,12 @@ impl Default for Shqlite {
         Self {
             db_conn: Connection::open_in_memory()
                 .expect("could not establish a temporary database connection"),
-            output: Output::StandardOut,
+            output: Output::BufferedStdout(BufWriter::new(stdout())),
             format: TableMode::Boxed,
             command: None,
+            cwd: std::env::current_dir().expect("cwd may not exists or insuffiecient permission"),
+            with_header: false,
+            with_echo: false,
         }
     }
 }
@@ -145,7 +134,7 @@ impl Shqlite {
         let path = Path::new(&dump_file);
         if path.exists() {
             let file = File::open(path).expect("could not open file");
-            self.output = Output::DumpFile(file);
+            self.output = Output::BufferedFile(BufWriter::new(file));
         }
     }
 
@@ -155,6 +144,10 @@ impl Shqlite {
 
     pub fn set_command(&mut self, cmd: String) {
         self.command = Some(cmd);
+    }
+
+    pub fn set_header(&mut self) {
+        self.with_header = true;
     }
 
     pub fn start_repl(&mut self) -> rustyline::Result<()> {
@@ -208,7 +201,6 @@ impl Shqlite {
             stmt.execute([])
                 .expect("unable to execute with a prepared statement");
 
-            println!("Successfully executed command!");
             return;
         }
 
@@ -229,14 +221,27 @@ impl Shqlite {
                 for col_idx in 0..col_count {
                     let value = row.get_ref(col_idx)?;
                     match value {
-                        ValueRef::Null => cells.push(Cell::new("NULL")),
-                        ValueRef::Text(content) => {
-                            cells.push(Cell::new(str::from_utf8(content).expect("non-utf9")))
+                        ValueRef::Null => {
+                            let cell = Cell::new("NULL");
+                            cells.push(cell);
                         }
-                        ValueRef::Integer(i) => cells.push(Cell::new(&i.to_string())),
-                        ValueRef::Real(f) => cells.push(Cell::new(&f.to_string())),
+                        ValueRef::Text(content) => {
+                            let cell = Cell::new(
+                                str::from_utf8(content).expect("encountered a non utf-8 character"),
+                            );
+                            cells.push(cell);
+                        }
+                        ValueRef::Integer(i) => {
+                            let cell = Cell::new(&i.to_string());
+                            cells.push(cell);
+                        }
+                        ValueRef::Real(f) => {
+                            let cell = Cell::new(&f.to_string());
+                            cells.push(cell);
+                        }
                         ValueRef::Blob(b) => {
-                            cells.push(Cell::new(&format!("<BLOB {} bytes>", b.len())))
+                            let cell = Cell::new(&format!("<BLOB {} bytes>", b.len()));
+                            cells.push(cell);
                         }
                     }
                 }
@@ -250,7 +255,13 @@ impl Shqlite {
         table.set_format(fmt);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    table.set_titles(Row::new(columns));
+                } else {
+                    table.unset_titles();
+                }
+            }
             _ => table.set_titles(Row::new(columns)),
         }
         // the rest contains the value of that column
@@ -259,11 +270,15 @@ impl Shqlite {
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => {
+                table.printstd();
+            }
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
+
+        self.output.flush();
     }
 
     fn execute_dot_command(&mut self, user_input: &str) {
@@ -271,12 +286,21 @@ impl Shqlite {
         let dot_cmd: &str = dot_cmd_with_args[0];
         let dot_cmd_args = &dot_cmd_with_args[1..];
 
+        if self.with_echo {
+            match &mut self.output {
+                Output::BufferedStdout(_) => println!("{}", user_input),
+                Output::BufferedFile(file) => {
+                    let _ = writeln!(file, "{}", user_input);
+                }
+            }
+        }
+
         match dot_cmd {
             ".archive" => Self::dot_archive(dot_cmd_args),
             ".auth" => Self::dot_auth(dot_cmd_args),
             ".backup" => self.dot_backup(dot_cmd_args),
             ".bail" => Self::dot_bail(dot_cmd_args),
-            ".cd" => Self::dot_cd(dot_cmd_args),
+            ".cd" => self.dot_cd(dot_cmd_args),
             ".changes" => Self::dot_changes(dot_cmd_args),
             ".check" => Self::dot_check(dot_cmd_args),
             ".clone" => Self::dot_clone(dot_cmd_args),
@@ -286,7 +310,7 @@ impl Shqlite {
             ".dbconfig" => Self::dot_dbconfig(),
             ".dbinfo" => Self::dot_dbinfo(dot_cmd_args),
             ".dbtotxt" => Self::dot_dbtotxt(dot_cmd_args),
-            ".dump" => Self::dot_dump(dot_cmd_args),
+            ".dump" => self.dot_dump(dot_cmd_args),
             ".echo" => self.dot_echo(dot_cmd_args),
             ".eqp" => Self::dot_eqp(dot_cmd_args),
             ".excel" => Self::dot_excel(dot_cmd_args),
@@ -295,7 +319,7 @@ impl Shqlite {
             ".explain" => Self::dot_explain(dot_cmd_args),
             ".filectrl" => Self::dot_filectrl(dot_cmd_args),
             ".fullschema" => Self::dot_fullschema(dot_cmd_args),
-            ".headers" => Self::dot_headers(dot_cmd_args),
+            ".headers" => self.dot_headers(dot_cmd_args),
             ".help" => self.dot_help(),
             ".import" => Self::dot_import(dot_cmd_args),
             ".imposter" => Self::dot_imposter(dot_cmd_args),
@@ -359,9 +383,18 @@ impl Shqlite {
     fn dot_bail(_args: &[&str]) {
         todo!("WIP to implement dot_bail function")
     }
-    fn dot_cd(args: &[&str]) {
+    fn dot_cd(&mut self, args: &[&str]) {
         if args.is_empty() {
             println!(".cd needs an argument to run");
+            return;
+        }
+
+        let path = PathBuf::from(args[0]);
+
+        if path.is_absolute() {
+            self.cwd = path;
+        } else if path.is_relative() && path.is_dir() {
+            self.cwd.push(path);
         }
     }
     fn dot_changes(_args: &[&str]) {
@@ -413,7 +446,13 @@ impl Shqlite {
         let title = Row::new(vec![seq, name, file]);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    table.set_titles(title);
+                } else {
+                    table.unset_titles();
+                }
+            }
             _ => table.set_titles(title),
         }
 
@@ -422,8 +461,10 @@ impl Shqlite {
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => {
+                table.printstd();
+            }
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
@@ -435,11 +476,132 @@ impl Shqlite {
     fn dot_dbtotxt(_args: &[&str]) {
         todo!("WIP to implement dot_dbtotxt function")
     }
-    fn dot_dump(_args: &[&str]) {
-        todo!("WIP to implement dot_dump function")
+    fn dot_dump(&mut self, _args: &[&str]) {
+        match &mut self.output {
+            Output::BufferedStdout(out) => {
+                let _ = writeln!(out, "{}", "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;");
+            }
+            Output::BufferedFile(file) => {
+                let _ = writeln!(file, "{}", "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;");
+            }
+        }
+
+        let get_table_names =
+            "SELECT name, type, sql FROM sqlite_schema WHERE  name NOT LIKE 'sqlite_%' ORDER BY 1";
+
+        let mut stmt = self
+            .db_conn
+            .prepare(get_table_names)
+            .expect("unable to construct a prepared statement");
+
+        let table_names = stmt
+            .query_map([], |row| {
+                let name = row.get::<_, String>(0).expect("can't get name columns");
+                let typenme = row.get::<_, String>(1).expect("can't get type columns");
+                let sql = row.get::<_, String>(2).expect("can't get sql columns");
+                Ok((name, typenme, sql))
+            })
+            .expect("could not query .tables");
+
+        let table_names = table_names.flatten();
+
+        for (name, typnme, sql) in table_names {
+            if typnme == "table" || typnme == "view" {
+                let values_sql = format!("SELECT * FROM {}", name);
+                let mut values_stmt = self
+                    .db_conn
+                    .prepare(&values_sql)
+                    .expect("unable to construct a prepared statement");
+
+                let columns_count = values_stmt.column_count();
+
+                let insert_into_values = values_stmt
+                    .query_map([], |row| {
+                        let mut cells: Vec<String> = Vec::new();
+                        for col_idx in 0..columns_count {
+                            let value = row.get_ref(col_idx)?;
+                            match value {
+                                ValueRef::Null => {
+                                    cells.push("NULL".to_string());
+                                }
+                                ValueRef::Text(content) => {
+                                    let utf_str = str::from_utf8(content)
+                                        .expect("encountered some non utf-8 string");
+                                    cells.push(format!("'{}'", utf_str.to_string()));
+                                }
+                                ValueRef::Integer(i) => {
+                                    cells.push(i.to_string());
+                                }
+                                ValueRef::Real(f) => {
+                                    cells.push(f.to_string());
+                                }
+                                ValueRef::Blob(b) => {
+                                    cells.push(format!("<BLOB {} bytes>", b.len()));
+                                }
+                            }
+                        }
+                        Ok(cells)
+                    })
+                    .expect("could not query values");
+
+                match &mut self.output {
+                    Output::BufferedStdout(out) => {
+                        let _ = writeln!(out, "{};", sql);
+                    }
+                    Output::BufferedFile(file) => {
+                        let _ = writeln!(file, "{};", sql);
+                    }
+                }
+
+                for insert_into in insert_into_values.flatten() {
+                    let joined = insert_into.join(", ");
+                    match &mut self.output {
+                        Output::BufferedStdout(out) => {
+                            let _ = writeln!(out, "INSERT INTO {} VALUES ({});", name, joined);
+                        }
+                        Output::BufferedFile(file) => {
+                            let _ = writeln!(file, "INSERT INTO {} VALUES ({});", name, joined);
+                        }
+                    }
+                }
+            } else if typnme == "index" {
+                match &mut self.output {
+                    Output::BufferedStdout(out) => {
+                        let _ = writeln!(out, "{};", sql);
+                    }
+                    Output::BufferedFile(file) => {
+                        let _ = writeln!(file, "{};", sql);
+                    }
+                }
+            }
+        }
+        match &mut self.output {
+            Output::BufferedStdout(out) => {
+                let _ = writeln!(out, "{}", "COMMIT;");
+            }
+            Output::BufferedFile(file) => {
+                let _ = writeln!(file, "{}", "COMMIT;");
+            }
+        }
+
+        self.output.flush();
     }
+
     fn dot_echo(&mut self, args: &[&str]) {
-        self.dot_print(args);
+        if args.is_empty() {
+            println!(".echo needs an argument...");
+            return;
+        }
+
+        let arg = args[0];
+        match arg {
+            "on" => self.with_echo = true,
+            "off" => self.with_echo = false,
+            _ => {
+                println!("unrecognized argument.");
+                return;
+            }
+        }
     }
     fn dot_eqp(_args: &[&str]) {
         todo!("WIP to implement dot_eqp function")
@@ -466,231 +628,30 @@ impl Shqlite {
     fn dot_fullschema(_args: &[&str]) {
         todo!("WIP to implement dot_fullschema function")
     }
-    fn dot_headers(_args: &[&str]) {
-        todo!("WIP to implement dot_headers function")
+    fn dot_headers(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".headers");
+            return;
+        }
+
+        let arg = args[0];
+        match arg {
+            "yes" => self.with_header = true,
+            "no" => self.with_header = false,
+            _ => {
+                println!("ERROR: Not a boolean value: \"{}\".", arg);
+            }
+        }
     }
     fn dot_help(&mut self) {
-        let mut table = table!(
-            [".archive", "...", "Manage SQL archives"],
-            [".auth", "ON|OFF", "Show authorizer callbacks"],
-            [
-                ".backup",
-                "?DB? FILE",
-                "Backup DB (default \"main\") to FILE"
-            ],
-            [
-                ".bail",
-                "on|off",
-                "Stop after hitting an error. Default OFF"
-            ],
-            [
-                ".cd",
-                "DIRECTORY",
-                "Change the working directory to DIRECTORY"
-            ],
-            [".changes", "on|off", "Show number of rows changed by SQL"],
-            [
-                ".check",
-                "GLOB",
-                "Fail if output since .testcase does not match"
-            ],
-            [
-                ".clone",
-                "NEWDB",
-                "Clone data into NEWDB from the existing database"
-            ],
-            [
-                ".connection",
-                "[close] [#]",
-                "Open or close an auxiliary database connection"
-            ],
-            [
-                ".crlf",
-                "?on|off?",
-                "Whether or not to use \\r\\n line endings"
-            ],
-            [
-                ".databases",
-                "",
-                "List names and files of attached databases"
-            ],
-            [
-                ".dbconfig",
-                "?op? ?val?",
-                "List or change sqlite3_db_config() options"
-            ],
-            [
-                ".dbinfo",
-                "?DB?",
-                "Show status information about the database"
-            ],
-            [".dbtotxt", "", "Hex dump of the database file"],
-            [".dump", "?OBJECTS?", "Render database content as SQL"],
-            [".echo", "on|off", "Turn command echo on or off"],
-            [
-                ".eqp",
-                "on|off|full|...",
-                "Enable or disable automatic EXPLAIN QUERY PLAN"
-            ],
-            [
-                ".excel",
-                "",
-                "Display the output of next command in spreadsheet"
-            ],
-            [".exit", "?CODE?", "Exit this program with return-code CODE"],
-            [".expert", "", "EXPERIMENTAL. Suggest indexes for queries"],
-            [
-                ".explain",
-                "?on|off|auto?",
-                "Change the EXPLAIN formatting mode. Default: auto"
-            ],
-            [
-                ".filectrl",
-                "CMD ...",
-                "Run various sqlite3_file_control() operations"
-            ],
-            [
-                ".fullschema",
-                "?--indent?",
-                "Show schema and the content of sqlite_stat tables"
-            ],
-            [".headers", "on|off", "Turn display of headers on or off"],
-            [".help", "?-all? ?PATTERN?", "Show help text for PATTERN"],
-            [".import", "FILE TABLE", "Import data from FILE into TABLE"],
-            [
-                ".imposter",
-                "INDEX TABLE",
-                "Create imposter table TABLE on index INDEX"
-            ],
-            [".indexes", "?TABLE?", "Show names of indexes"],
-            [
-                ".intck",
-                "?STEPS_PER_UNLOCK?",
-                "Run an incremental integrity check on the db"
-            ],
-            [
-                ".limit",
-                "?LIMIT? ?VAL?",
-                "Display or change the value of an SQLITE_LIMIT"
-            ],
-            [".lint", "OPTIONS", "Report potential schema issues."],
-            [".load", "FILE ?ENTRY?", "Load an extension library"],
-            [
-                ".log",
-                "FILE|on|off",
-                "Turn logging on or off. FILE can be stderr/stdout"
-            ],
-            [".mode", "?MODE? ?OPTIONS?", "Set output mode"],
-            [
-                ".nonce",
-                "STRING",
-                "Suspend safe mode for one command if nonce matches"
-            ],
-            [".nullvalue", "STRING", "Use STRING in place of NULL values"],
-            [
-                ".once",
-                "?OPTIONS? ?FILE?",
-                "Output for the next SQL command only to FILE"
-            ],
-            [
-                ".open",
-                "?OPTIONS? ?FILE?",
-                "Close existing database and reopen FILE"
-            ],
-            [
-                ".output",
-                "?FILE?",
-                "Send output to FILE or stdout if FILE is omitted"
-            ],
-            [".parameter", "CMD ...", "Manage SQL parameter bindings"],
-            [".print", "STRING...", "Print literal STRING"],
-            [
-                ".progress",
-                "N",
-                "Invoke progress handler after every N opcodes"
-            ],
-            [".prompt", "MAIN CONTINUE", "Replace the standard prompts"],
-            [
-                ".quit",
-                "",
-                "Stop interpreting input stream, exit if primary."
-            ],
-            [".read", "FILE", "Read input from FILE or command output"],
-            [
-                ".recover",
-                "",
-                "Recover as much data as possible from corrupt db."
-            ],
-            [
-                ".restore",
-                "?DB? FILE",
-                "Restore content of DB (default \"main\") from FILE"
-            ],
-            [
-                ".save",
-                "?OPTIONS? FILE",
-                "Write database to FILE (an alias for .backup ...)"
-            ],
-            [
-                ".scanstats",
-                "on|off|est",
-                "Turn sqlite3_stmt_scanstatus() metrics on or off"
-            ],
-            [
-                ".schema",
-                "?PATTERN?",
-                "Show the CREATE statements matching PATTERN"
-            ],
-            [
-                ".separator",
-                "COL ?ROW?",
-                "Change the column and row separators"
-            ],
-            [".session", "?NAME? CMD ...", "Create or control sessions"],
-            [".sha3sum", "...", "Compute a SHA3 hash of database content"],
-            [".shell", "CMD ARGS...", "Run CMD ARGS... in a system shell"],
-            [".show", "", "Show the current values for various settings"],
-            [".stats", "?ARG?", "Show stats or turn stats on or off"],
-            [
-                ".system",
-                "CMD ARGS...",
-                "Run CMD ARGS... in a system shell"
-            ],
-            [
-                ".tables",
-                "?TABLE?",
-                "List names of tables matching LIKE pattern TABLE"
-            ],
-            [
-                ".timeout",
-                "MS",
-                "Try opening locked tables for MS milliseconds"
-            ],
-            [".timer", "on|off", "Turn SQL timer on or off"],
-            [
-                ".trace",
-                "?OPTIONS?",
-                "Output each SQL statement as it is run"
-            ],
-            [".unmodule", "NAME ...", "Unregister virtual table modules"],
-            [".version", "", "Show source, library and compiler versions"],
-            [".vfsinfo", "?AUX?", "Information about the top-level VFS"],
-            [".vfslist", "", "List all available VFSes"],
-            [".vfsname", "?AUX?", "Print the name of the VFS stack"],
-            [
-                ".width",
-                "NUM1 NUM2 ...",
-                "Set minimum column widths for columnar output"
-            ],
-            [
-                ".www",
-                "",
-                "Display output of the next command in web browser"
-            ]
-        );
+        let mut tbl = Table::new();
+
+        for [cmd, arg, desc] in HELP_COMMANDS {
+            tbl.add_row(row![cmd, arg, desc]);
+        }
 
         let fmt = self.format.get_table_format();
-        table.set_format(fmt);
+        tbl.set_format(fmt);
 
         let mut command = Cell::new("command");
         command.align(Alignment::CENTER);
@@ -702,14 +663,22 @@ impl Shqlite {
         let info_row = Row::new(vec![command, args, desc]);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
-            _ => table.set_titles(info_row),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    tbl.set_titles(info_row);
+                } else {
+                    tbl.unset_titles();
+                }
+            }
+            _ => tbl.set_titles(info_row),
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
-                table.print(file).expect("unable to write to file");
+            Output::BufferedStdout(_) => {
+                tbl.printstd();
+            }
+            Output::BufferedFile(file) => {
+                tbl.print(file).expect("unable to write to file");
             }
         }
     }
@@ -743,7 +712,13 @@ impl Shqlite {
         let index_row = Row::new(vec![indexes_cell]);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    table.set_titles(index_row);
+                } else {
+                    table.unset_titles();
+                }
+            }
             _ => table.set_titles(index_row),
         }
 
@@ -752,8 +727,10 @@ impl Shqlite {
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => {
+                table.printstd();
+            }
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
@@ -795,10 +772,15 @@ impl Shqlite {
             println!(".open needs at least one argument");
             return;
         }
-        let new_conn = Connection::open(args[0]).expect(
+
+        let path = Path::new(args[0]);
+        self.cwd.push(path);
+
+        let new_conn = Connection::open(&self.cwd).expect(
             "unable to connect to db or file path can't be converted into C-compatible strings",
         );
         self.db_conn = new_conn;
+        self.cwd.pop();
     }
     fn dot_output(&mut self, args: &[&str]) {
         if args.is_empty() {
@@ -807,25 +789,21 @@ impl Shqlite {
         }
         let new_dump_file =
             File::open(args[0]).unwrap_or(File::create(args[0]).expect("unable to create file"));
-        self.output = Output::DumpFile(new_dump_file);
+        self.output = Output::BufferedFile(BufWriter::new(new_dump_file));
     }
     fn dot_parameter(_args: &[&str]) {
         todo!("WIP to implement dot_parameter function")
     }
     fn dot_print(&mut self, args: &[&str]) {
         match &mut self.output {
-            Output::StandardOut => {
+            Output::BufferedStdout(_) => {
                 for arg in args {
-                    println!("{}", arg);
+                    print!("{}", arg);
                 }
             }
-            Output::DumpFile(file) => {
-                let mut bufwriter = BufWriter::new(file);
+            Output::BufferedFile(file) => {
                 for arg in args {
-                    let bytes_writen = bufwriter
-                        .write(arg.as_bytes())
-                        .expect("can't write to file");
-                    println!("written {}", bytes_writen);
+                    let _ = writeln!(file, "{}", arg);
                 }
             }
         }
@@ -841,13 +819,17 @@ impl Shqlite {
     fn dot_quit() {
         exit(0)
     }
+
     fn dot_read(&mut self, args: &[&str]) {
         if args.is_empty() {
             println!(".read command needs an argument");
             return;
         }
 
-        let db_file = File::open(args[0]).expect("unable to open file");
+        let path = Path::new(args[0]);
+        self.cwd.push(path);
+
+        let db_file = File::open(&self.cwd).expect("unable to open file");
         let reader = BufReader::new(db_file);
         reader.split(b';').for_each(|sql| {
             let sql = sql.expect("unable to unwrap into vector of u8s");
@@ -855,6 +837,7 @@ impl Shqlite {
             let trimmed = sql_str.trim();
             if !trimmed.is_empty() {
                 self.execute_user_query(trimmed);
+                self.cwd.pop();
             }
         });
     }
@@ -904,7 +887,13 @@ impl Shqlite {
         let row_title = Row::new(vec![title]);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    table.set_titles(row_title)
+                } else {
+                    table.unset_titles();
+                }
+            }
             _ => table.set_titles(row_title),
         }
 
@@ -913,8 +902,8 @@ impl Shqlite {
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => table.printstd(),
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
@@ -947,18 +936,15 @@ impl Shqlite {
             .expect("unable to execute command");
 
         match &mut self.output {
-            Output::StandardOut => {
+            Output::BufferedStdout(_) => {
                 println!(
                     "{:?}",
                     str::from_utf8(&output.stdout).expect("found non utf-8")
                 );
             }
-            Output::DumpFile(file) => {
-                let mut bufwriter = BufWriter::new(file);
-                let bytes_written = bufwriter
-                    .write(&output.stdout)
-                    .expect("can't write to files");
-                println!("bytes written {}", bytes_written);
+            Output::BufferedFile(file) => {
+                let out = str::from_utf8(&output.stdout).expect("found non utf-8");
+                let _ = writeln!(file, "{}", out);
             }
         }
     }
@@ -988,7 +974,13 @@ impl Shqlite {
         let table_row = Row::new(vec![tables_cell]);
 
         match self.format {
-            TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
+            TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                if self.with_header {
+                    table.set_titles(table_row);
+                } else {
+                    table.unset_titles();
+                }
+            }
             _ => table.set_titles(table_row),
         }
 
@@ -997,8 +989,8 @@ impl Shqlite {
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => table.printstd(),
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
@@ -1047,12 +1039,18 @@ impl Shqlite {
 
         match self.format {
             TableMode::List | TableMode::Csv | TableMode::Tabs => table.unset_titles(),
-            _ => table.set_titles(version_info),
+            _ => {
+                if self.with_header {
+                    table.set_titles(version_info);
+                } else {
+                    table.unset_titles();
+                }
+            }
         }
 
         match &mut self.output {
-            Output::StandardOut => table.printstd(),
-            Output::DumpFile(file) => {
+            Output::BufferedStdout(_) => table.printstd(),
+            Output::BufferedFile(file) => {
                 table.print(file).expect("unable to write to file");
             }
         }
