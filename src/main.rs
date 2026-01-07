@@ -1,6 +1,7 @@
 pub mod app;
 mod consts;
 pub mod shqlite;
+mod util;
 
 use crate::app::App;
 use crate::shqlite::Shqlite;

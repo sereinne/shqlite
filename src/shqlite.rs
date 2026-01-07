@@ -1,10 +1,10 @@
 use crate::consts::HELP_COMMANDS;
+use crate::util;
 use prettytable::format::Alignment;
 use prettytable::format::TableFormat;
 use prettytable::{Cell, Row, Table, row, table};
 use rusqlite::Connection;
 use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
-use rusqlite::types::ValueRef;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 use std::fs::File;
@@ -26,6 +26,13 @@ impl Output {
         match self {
             Output::BufferedStdout(out) => out.flush().expect("unable to flush"),
             Output::BufferedFile(file) => file.flush().expect("unable to flush"),
+        }
+    }
+
+    pub fn write_from_table(&mut self, tbl: &mut Table) -> usize {
+        match self {
+            Output::BufferedStdout(sout) => tbl.print(sout).expect("unable to fully print"),
+            Output::BufferedFile(file) => tbl.print(file).expect("unable to fully print"),
         }
     }
 }
@@ -204,80 +211,33 @@ impl Shqlite {
             return;
         }
 
-        let mut columns: Vec<Cell> = Vec::with_capacity(col_count);
+        let row_title = util::query_colname_as_rows(&stmt, col_count);
+        let row_data = util::query_data_as_rows(&mut stmt);
 
-        for col_idx in 0..col_count {
-            let colname = stmt
-                .column_name(col_idx)
-                .expect("unable to get column named because of an invalid column index");
-            let mut cell = Cell::new(colname);
-            cell.align(Alignment::CENTER);
-            columns.push(cell);
-        }
-
-        let mapped_rows = stmt
-            .query_map([], |row| {
-                let mut cells: Vec<Cell> = Vec::new();
-                for col_idx in 0..col_count {
-                    let value = row.get_ref(col_idx)?;
-                    match value {
-                        ValueRef::Null => {
-                            let cell = Cell::new("NULL");
-                            cells.push(cell);
-                        }
-                        ValueRef::Text(content) => {
-                            let cell = Cell::new(
-                                str::from_utf8(content).expect("encountered a non utf-8 character"),
-                            );
-                            cells.push(cell);
-                        }
-                        ValueRef::Integer(i) => {
-                            let cell = Cell::new(&i.to_string());
-                            cells.push(cell);
-                        }
-                        ValueRef::Real(f) => {
-                            let cell = Cell::new(&f.to_string());
-                            cells.push(cell);
-                        }
-                        ValueRef::Blob(b) => {
-                            let cell = Cell::new(&format!("<BLOB {} bytes>", b.len()));
-                            cells.push(cell);
-                        }
-                    }
-                }
-                Ok(cells)
-            })
-            .expect("unable to query prepared statement");
-
+        // table to be displayed as a result of a query
         let mut table = Table::new();
 
-        let fmt = self.format.get_table_format();
-        table.set_format(fmt);
+        // set format based on `TableMode`
+        let mode = self.format.get_table_format();
+        table.set_format(mode);
 
         match self.format {
             TableMode::List | TableMode::Csv | TableMode::Tabs => {
                 if self.with_header {
-                    table.set_titles(Row::new(columns));
+                    table.set_titles(row_title);
                 } else {
                     table.unset_titles();
                 }
             }
-            _ => table.set_titles(Row::new(columns)),
-        }
-        // the rest contains the value of that column
-        for row_result in mapped_rows.flatten() {
-            table.add_row(Row::new(row_result));
+            _ => table.set_titles(row_title),
         }
 
-        match &mut self.output {
-            Output::BufferedStdout(_) => {
-                table.printstd();
-            }
-            Output::BufferedFile(file) => {
-                table.print(file).expect("unable to write to file");
-            }
+        // and then the data
+        for data in row_data {
+            table.add_row(data);
         }
 
+        self.output.write_from_table(&mut table);
         self.output.flush();
     }
 
@@ -520,59 +480,20 @@ impl Shqlite {
                         let mut cells: Vec<String> = Vec::new();
                         for col_idx in 0..columns_count {
                             let value = row.get_ref(col_idx)?;
-                            match value {
-                                ValueRef::Null => {
-                                    cells.push("NULL".to_string());
-                                }
-                                ValueRef::Text(content) => {
-                                    let utf_str = str::from_utf8(content)
-                                        .expect("encountered some non utf-8 string");
-                                    cells.push(format!("'{}'", utf_str.to_string()));
-                                }
-                                ValueRef::Integer(i) => {
-                                    cells.push(i.to_string());
-                                }
-                                ValueRef::Real(f) => {
-                                    cells.push(f.to_string());
-                                }
-                                ValueRef::Blob(b) => {
-                                    cells.push(format!("<BLOB {} bytes>", b.len()));
-                                }
-                            }
+                            let stringified = util::value_ref_to_str(value);
+                            cells.push(stringified);
                         }
                         Ok(cells)
                     })
                     .expect("could not query values");
 
-                match &mut self.output {
-                    Output::BufferedStdout(out) => {
-                        let _ = writeln!(out, "{};", sql);
-                    }
-                    Output::BufferedFile(file) => {
-                        let _ = writeln!(file, "{};", sql);
-                    }
-                }
+                util::write_generic_sql_stmt(&mut self.output, sql);
 
-                for insert_into in insert_into_values.flatten() {
-                    let joined = insert_into.join(", ");
-                    match &mut self.output {
-                        Output::BufferedStdout(out) => {
-                            let _ = writeln!(out, "INSERT INTO {} VALUES ({});", name, joined);
-                        }
-                        Output::BufferedFile(file) => {
-                            let _ = writeln!(file, "INSERT INTO {} VALUES ({});", name, joined);
-                        }
-                    }
+                for values in insert_into_values.flatten() {
+                    util::write_insert_stmt(&mut self.output, &name, values);
                 }
             } else if typnme == "index" {
-                match &mut self.output {
-                    Output::BufferedStdout(out) => {
-                        let _ = writeln!(out, "{};", sql);
-                    }
-                    Output::BufferedFile(file) => {
-                        let _ = writeln!(file, "{};", sql);
-                    }
-                }
+                util::write_generic_sql_stmt(&mut self.output, sql);
             }
         }
         match &mut self.output {
