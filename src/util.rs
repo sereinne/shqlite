@@ -1,121 +1,131 @@
+use crate::config::TableMode;
 use prettytable::format::Alignment;
-use prettytable::{Cell, Row};
+use prettytable::format::TableFormat;
+use prettytable::{Cell, Row, Table};
 use rusqlite::Statement;
+use rustyline::error::ReadlineError;
 use std::io::Write;
+use std::process::exit;
 
 use rusqlite::types::ValueRef;
 
-use crate::shqlite::Output;
+use crate::config::Output;
 
-pub fn onoff_to_bool(arg: &str) -> bool {
-    match arg {
-        "on" => true,
-        "off" => false,
+pub fn handle_readline_err(err: ReadlineError) {
+    match err {
+        ReadlineError::Eof => {
+            println!("Ctrl-D Bye!");
+            exit(0)
+        }
+        ReadlineError::Interrupted => {
+            println!("Ctrl-C Bye!");
+            exit(0)
+        }
         _ => {
-            println!("ERROR: Not a boolean value: \"{}\".", arg);
-            false
+            println!("ERROR: {}", err);
+            exit(1)
         }
     }
 }
 
-pub fn bool_to_onoff(b: bool) -> &'static str {
-    match b {
-        true => "on",
-        false => "off",
+pub fn construct_and_print_output(
+    writer: &mut Output,
+    mode: TableMode,
+    title: Vec<String>,
+    data: Vec<Vec<String>>,
+    with_header: bool,
+) {
+    match mode {
+        // these modes can't be constructed using the `prettytable` crate
+        TableMode::Ascii => {}
+        TableMode::Html => {}
+        TableMode::Insert => {}
+        TableMode::Json => {}
+        TableMode::Line => {}
+        // else `prettytable` is able to print. even though `prettytable` could print html like
+        _ => {
+            // populate the table with the row data
+            let mut table = Table::from(data);
+
+            // get the title row and append it to the first row in the table
+            let centered_title = title
+                .into_iter()
+                .map(|colname| Cell::new_align(&colname, Alignment::CENTER))
+                .collect();
+
+            // appends the title based on this rule
+            match mode {
+                TableMode::List | TableMode::Csv | TableMode::Tabs => {
+                    if with_header {
+                        table.set_titles(centered_title);
+                    } else {
+                        table.unset_titles();
+                    }
+                }
+                _ => table.set_titles(centered_title),
+            }
+
+            // formats the table based on `mode`
+            let fmt = TableFormat::from(mode);
+            table.set_format(fmt);
+
+            // prints the table
+            writer.print_prettytable(&mut table);
+            writer.flush();
+        }
     }
 }
 
-pub fn value_ref_to_str(valref: ValueRef, with_quotes: bool, null_value: Option<&str>) -> String {
-    match valref {
-        ValueRef::Null => null_value.unwrap_or("").to_string(),
+pub fn query_title_row(
+    stmt: &mut Statement,
+    col_count: usize,
+    mode: TableMode,
+) -> rusqlite::Result<Vec<String>> {
+    let mut titles: Vec<String> = Vec::with_capacity(col_count);
+
+    for col_idx in 0..col_count {
+        let title = match mode {
+            TableMode::Quote => format!("'{}'", stmt.column_name(col_idx)?),
+            TableMode::Tcl => format!("\"{}\"", stmt.column_name(col_idx)?),
+            _ => format!("{}", stmt.column_name(col_idx)?),
+        };
+        titles.push(title);
+    }
+
+    Ok(titles)
+}
+
+pub fn query_data_rows(
+    stmt: &mut Statement,
+    col_count: usize,
+    mode: TableMode,
+    null_value: Option<&String>,
+) -> rusqlite::Result<Vec<Vec<String>>> {
+    let rows = stmt.query_map((), |row| {
+        let mut data = Vec::with_capacity(col_count);
+        for col_idx in 0..col_count {
+            let valref = row.get_ref(col_idx)?;
+            let stringified = parse_sql_value(valref, mode, null_value);
+            data.push(stringified);
+        }
+        Ok(data)
+    })?;
+    rows.collect()
+}
+
+fn parse_sql_value(sql_val: ValueRef, mode: TableMode, null_value: Option<&String>) -> String {
+    let null_value = null_value.cloned().unwrap_or(String::new());
+    match sql_val {
+        ValueRef::Null => null_value,
         ValueRef::Integer(i) => i.to_string(),
-        ValueRef::Real(r) => r.to_string(),
-        ValueRef::Blob(blob) => {
-            format!("<BLOB {} bytes>", blob.len())
-        }
-        ValueRef::Text(txt) => {
-            let str_utf = str::from_utf8(txt).expect("UTF-8 error blob string conversion");
-            if with_quotes {
-                return format!("'{}'", str_utf);
-            }
-            format!("{}", str_utf)
-        }
+        ValueRef::Real(fp) => fp.to_string(),
+        ValueRef::Text(txt) => match mode {
+            TableMode::Quote => format!("'{}'", str::from_utf8(txt).unwrap()),
+            TableMode::Tcl => format!("\"{}\"", str::from_utf8(txt).unwrap()),
+            _ => str::from_utf8(txt)
+                .expect("encountered an invalid character")
+                .to_string(),
+        },
+        ValueRef::Blob(blob) => format!("<BLOB {} bytes>", blob.len()),
     }
-}
-
-pub fn write_generic_sql_stmt(writer: &mut Output, sql_stmt: &str) {
-    match writer {
-        Output::BufferedStdout(out) => {
-            let _ = writeln!(out, "{};", sql_stmt);
-        }
-        Output::BufferedFile(file) => {
-            let _ = writeln!(file, "{};", sql_stmt);
-        }
-    }
-}
-
-pub fn write_insert_stmt(writer: &mut Output, table_name: &str, values: &Vec<String>) {
-    let joined = values.join(", ");
-    match writer {
-        Output::BufferedStdout(out) => {
-            let _ = writeln!(out, "INSERT INTO {} VALUES ({});", table_name, joined);
-        }
-        Output::BufferedFile(file) => {
-            let _ = writeln!(file, "INSERT INTO {} VALUES ({});", table_name, joined);
-        }
-    }
-}
-
-pub fn query_colname_as_tbl_rows(stmt: &Statement, col_count: usize) -> Row {
-    let mut names: Vec<Cell> = Vec::with_capacity(col_count);
-    for idx in 0..col_count {
-        let name = stmt.column_name(idx).expect("index of out bounds");
-        let cell = Cell::new_align(name, Alignment::CENTER);
-        names.push(cell);
-    }
-    Row::new(names)
-}
-
-pub fn query_data_as_tbl_rows(
-    stmt: &mut Statement,
-    col_count: usize,
-    with_quotes: bool,
-    null_value: Option<&str>,
-) -> Vec<Row> {
-    let rows = stmt
-        .query_map([], |row| {
-            let mut values: Vec<Cell> = Vec::with_capacity(col_count);
-            for idx in 0..col_count {
-                let valref = row.get_ref(idx).expect("index out of bounds");
-                let stringify = value_ref_to_str(valref, with_quotes, null_value);
-                let cell = Cell::new(&stringify);
-                values.push(cell);
-            }
-            let to_row = Row::new(values);
-            Ok(to_row)
-        })
-        .expect("unable to `query_map` all fields");
-
-    rows.flatten().collect()
-}
-
-pub fn query_data_as_str(
-    stmt: &mut Statement,
-    col_count: usize,
-    with_quotes: bool,
-    null_value: Option<&str>,
-) -> Vec<Vec<String>> {
-    let rows = stmt
-        .query_map([], |row| {
-            let mut values: Vec<String> = Vec::with_capacity(col_count);
-            for idx in 0..col_count {
-                let valref = row.get_ref(idx).expect("index out of bounds");
-                let stringify = value_ref_to_str(valref, with_quotes, null_value);
-                values.push(stringify);
-            }
-            Ok(values)
-        })
-        .expect("unable to `query_map` all fields");
-
-    rows.flatten().collect()
 }

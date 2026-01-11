@@ -1,70 +1,87 @@
-use crate::shqlite::Shqlite;
 use clap::Parser;
 
-#[derive(Parser, Debug)]
-#[command(name = "shqlite", about = "A simple terminal `sqlite` client in Rust", long_about = None)]
+use crate::config::Context;
+
+#[derive(Parser)]
+#[command(name = "shqlite", version = "0.1.0", about = "terminal sqlite client written in rust", long_about = None)]
 pub struct App {
     /// FILENAME is the name of an SQLite database. A new database is created
     /// if the file does not previously exist. Defaults to :memory:.
-    pub(crate) filename: Option<String>,
+    filename: Option<String>,
 
-    /// set output mode
-    #[arg(short, long, default_value = "boxed", value_parser = clap::builder::PossibleValuesParser::new([
-        "ascii",
-        "boxed",
-        "csv",
-        "column",
-        "html",
-        "insert",
-        "json",
-        "line",
-        "list",
-        "markdown",
-        "quote",
-        "table",
-        "tabs",
-        "tcl"
-    ]))]
-    pub(crate) mode: String,
+    /// sets output mode to one out of these values (default: box)
+    #[arg(short, long, default_value = "box", value_parser = clap::builder::PossibleValuesParser::new([
+            "ascii",
+            "box",
+            "csv",
+            "column",
+            "html",
+            "insert",
+            "json",
+            "line",
+            "list",
+            "markdown",
+            "quote",
+            "table",
+            "tabs",
+            "tcl"
+        ]))]
+    mode: String,
 
-    /// read/process named files
+    /// read/process named sql file, by default is going to read input from stdout
     #[arg(short, long)]
-    pub(crate) init: Option<String>,
+    init: Option<String>,
 
     /// run "COMMAND" before reading stdin
-    #[arg(short, long)]
-    pub(crate) cmd: Option<String>,
+    command: Option<String>,
 
     /// turn headers on or off
     #[arg(long, overrides_with = "_no_header")]
-    pub(crate) header: bool,
+    header: bool,
 
+    /// reciprocal of --header flag
     #[arg(long = "no-header")]
-    pub(crate) _no_header: bool,
+    _no_header: bool,
+
+    /// print inputs before execution
+    #[arg(short, long)]
+    echo: bool,
+
+    /// replace null values with something else
+    #[arg(long = "null-value")]
+    null_value: Option<String>,
 }
 
-impl From<App> for Shqlite {
+impl From<App> for Context {
     fn from(value: App) -> Self {
-        let mut shqlite = Self::default();
+        let mut ctx = Self::default();
 
-        shqlite.set_format(value.mode);
+        if value.echo {
+            ctx.set_with_echo();
+        }
 
         if value.header {
-            shqlite.set_header();
+            ctx.set_with_header();
         }
 
-        if let Some(cmd) = value.cmd {
-            shqlite.set_command(cmd);
+        ctx.set_mode(value.mode);
+
+        if let Some(conn) = value.filename {
+            ctx.set_conn(conn);
         }
 
-        if let Some(output) = value.init {
-            shqlite.set_output(output);
+        if let Some(output_file) = value.init {
+            ctx.set_output(output_file);
         }
 
-        if let Some(filename) = value.filename {
-            shqlite.set_db_conn(filename);
+        if let Some(cmd) = value.command {
+            ctx.set_command(cmd);
         }
 
-        shqlite
+        if let Some(nv) = value.null_value {
+            ctx.set_null_value(nv);
+        }
+
+        ctx
     }
 }

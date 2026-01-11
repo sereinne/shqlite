@@ -1,0 +1,240 @@
+ascii
+
+# basically create a string and push all of the content of each row in that string without any formatting
+1NeliePelfernpelfer0@sciencedaily.comFemale239.186.81.912ThibaudBrunskilltbrunskill1@istockphoto.comMale194.213.229.133Lilyande Glanvilleldeglanville2@dailymail.co.ukFemale189.95.223.14GrisWarfieldgwarfield3@hud.govMale54.43.76.1165BealeBrownleabbrownlea4@marriott.comMale179.176.147.80sqlite
+
+boxed
+
+# already defined how to format this in consts.rs but the difference is that `shqlite` is more rounded
+┌────┬────────────┬──────────────┬───────────────────────────────┬────────┬────────────────┐
+│ id │ first_name │  last_name   │             email             │ gender │   ip_address   │
+├────┼────────────┼──────────────┼───────────────────────────────┼────────┼────────────────┤
+│ 1  │ Nelie      │ Pelfer       │ npelfer0@sciencedaily.com     │ Female │ 239.186.81.91  │
+│ 2  │ Thibaud    │ Brunskill    │ tbrunskill1@istockphoto.com   │ Male   │ 194.213.229.13 │
+│ 3  │ Lilyan     │ de Glanville │ ldeglanville2@dailymail.co.uk │ Female │ 189.95.223.1   │
+│ 4  │ Gris       │ Warfield     │ gwarfield3@hud.gov            │ Male   │ 54.43.76.116   │
+│ 5  │ Beale      │ Brownlea     │ bbrownlea4@marriott.com       │ Male   │ 179.176.147.80 │
+└────┴────────────┴──────────────┴───────────────────────────────┴────────┴────────────────┘
+
+csv
+
+# already defined how to format this in consts.rs
+1,Nelie,Pelfer,npelfer0@sciencedaily.com,Female,239.186.81.91
+2,Thibaud,Brunskill,tbrunskill1@istockphoto.com,Male,194.213.229.13
+3,Lilyan,"de Glanville",ldeglanville2@dailymail.co.uk,Female,189.95.223.1
+4,Gris,Warfield,gwarfield3@hud.gov,Male,54.43.76.116
+5,Beale,Brownlea,bbrownlea4@marriott.com,Male,179.176.147.80
+
+column
+
+# already defined how to format this in consts.rs
+
+id  first_name  last_name     email                          gender  ip_address
+--  ----------  ------------  -----------------------------  ------  --------------
+1   Nelie       Pelfer        npelfer0@sciencedaily.com      Female  239.186.81.91
+2   Thibaud     Brunskill     tbrunskill1@istockphoto.com    Male    194.213.229.13
+3   Lilyan      de Glanville  ldeglanville2@dailymail.co.uk  Female  189.95.223.1
+4   Gris        Warfield      gwarfield3@hud.gov             Male    54.43.76.116
+5   Beale       Brownlea      bbrownlea4@marriott.com        Male    179.176.147.80
+
+html
+
+# we can implement this
+
+<TR><TH>id</TH>
+<TH>first_name</TH>
+<TH>last_name</TH>
+<TH>email</TH>
+<TH>gender</TH>
+<TH>ip_address</TH>
+</TR>
+<TR><TD>1</TD>
+<TD>Nelie</TD>
+<TD>Pelfer</TD>
+<TD>npelfer0@sciencedaily.com</TD>
+<TD>Female</TD>
+<TD>239.186.81.91</TD>
+</TR>
+<TR><TD>2</TD>
+<TD>Thibaud</TD>
+<TD>Brunskill</TD>
+<TD>tbrunskill1@istockphoto.com</TD>
+<TD>Male</TD>
+<TD>194.213.229.13</TD>
+</TR>
+<TR><TD>3</TD>
+<TD>Lilyan</TD>
+<TD>de Glanville</TD>
+<TD>ldeglanville2@dailymail.co.uk</TD>
+<TD>Female</TD>
+<TD>189.95.223.1</TD>
+</TR>
+<TR><TD>4</TD>
+<TD>Gris</TD>
+<TD>Warfield</TD>
+<TD>gwarfield3@hud.gov</TD>
+<TD>Male</TD>
+<TD>54.43.76.116</TD>
+</TR>
+<TR><TD>5</TD>
+<TD>Beale</TD>
+<TD>Brownlea</TD>
+<TD>bbrownlea4@marriott.com</TD>
+<TD>Male</TD>
+<TD>179.176.147.80</TD>
+</TR>
+
+insert
+
+# we can implement this
+
+INSERT INTO "table"(id,first_name,last_name,email,gender,ip_address) VALUES(1,'Nelie','Pelfer','npelfer0@sciencedaily.com','Female','239.186.81.91');
+INSERT INTO "table"(id,first_name,last_name,email,gender,ip_address) VALUES(2,'Thibaud','Brunskill','tbrunskill1@istockphoto.com','Male','194.213.229.13');
+INSERT INTO "table"(id,first_name,last_name,email,gender,ip_address) VALUES(3,'Lilyan','de Glanville','ldeglanville2@dailymail.co.uk','Female','189.95.223.1');
+INSERT INTO "table"(id,first_name,last_name,email,gender,ip_address) VALUES(4,'Gris','Warfield','gwarfield3@hud.gov','Male','54.43.76.116');
+INSERT INTO "table"(id,first_name,last_name,email,gender,ip_address) VALUES(5,'Beale','Brownlea','bbrownlea4@marriott.com','Male','179.176.147.80');
+
+json
+
+# we can implement this
+
+[
+  {
+    "id": 1,
+    "first_name": "Nelie",
+    "last_name": "Pelfer",
+    "email": "npelfer0@sciencedaily.com",
+    "gender": "Female",
+    "ip_address": "239.186.81.91"
+  },
+  {
+    "id": 2,
+    "first_name": "Thibaud",
+    "last_name": "Brunskill",
+    "email": "tbrunskill1@istockphoto.com",
+    "gender": "Male",
+    "ip_address": "194.213.229.13"
+  },
+  {
+    "id": 3,
+    "first_name": "Lilyan",
+    "last_name": "de Glanville",
+    "email": "ldeglanville2@dailymail.co.uk",
+    "gender": "Female",
+    "ip_address": "189.95.223.1"
+  },
+  {
+    "id": 4,
+    "first_name": "Gris",
+    "last_name": "Warfield",
+    "email": "gwarfield3@hud.gov",
+    "gender": "Male",
+    "ip_address": "54.43.76.116"
+  },
+  {
+    "id": 5,
+    "first_name": "Beale",
+    "last_name": "Brownlea",
+    "email": "bbrownlea4@marriott.com",
+    "gender": "Male",
+    "ip_address": "179.176.147.80"
+  }
+]
+
+line
+
+        id = 1
+first_name = Nelie
+ last_name = Pelfer
+     email = npelfer0@sciencedaily.com
+    gender = Female
+ip_address = 239.186.81.91
+
+        id = 2
+first_name = Thibaud
+ last_name = Brunskill
+     email = tbrunskill1@istockphoto.com
+    gender = Male
+ip_address = 194.213.229.13
+
+        id = 3
+first_name = Lilyan
+ last_name = de Glanville
+     email = ldeglanville2@dailymail.co.uk
+    gender = Female
+ip_address = 189.95.223.1
+
+        id = 4
+first_name = Gris
+ last_name = Warfield
+     email = gwarfield3@hud.gov
+    gender = Male
+ip_address = 54.43.76.116
+
+        id = 5
+first_name = Beale
+ last_name = Brownlea
+     email = bbrownlea4@marriott.com
+    gender = Male
+ip_address = 179.176.147.80
+
+list
+
+# already defined in consts.rs
+1|Nelie|Pelfer|npelfer0@sciencedaily.com|Female|239.186.81.91
+2|Thibaud|Brunskill|tbrunskill1@istockphoto.com|Male|194.213.229.13
+3|Lilyan|de Glanville|ldeglanville2@dailymail.co.uk|Female|189.95.223.1
+4|Gris|Warfield|gwarfield3@hud.gov|Male|54.43.76.116
+5|Beale|Brownlea|bbrownlea4@marriott.com|Male|179.176.147.80
+
+
+markdown
+
+# already defined in consts.rs (similar to column)
+| id | first_name |  last_name   |             email             | gender |   ip_address   |
+|----|------------|--------------|-------------------------------|--------|----------------|
+| 1  | Nelie      | Pelfer       | npelfer0@sciencedaily.com     | Female | 239.186.81.91  |
+| 2  | Thibaud    | Brunskill    | tbrunskill1@istockphoto.com   | Male   | 194.213.229.13 |
+| 3  | Lilyan     | de Glanville | ldeglanville2@dailymail.co.uk | Female | 189.95.223.1   |
+| 4  | Gris       | Warfield     | gwarfield3@hud.gov            | Male   | 54.43.76.116   |
+| 5  | Beale      | Brownlea     | bbrownlea4@marriott.com       | Male   | 179.176.147.80 |
+
+quote
+
+# similar to csv format but with quotes
+1,'Nelie','Pelfer','npelfer0@sciencedaily.com','Female','239.186.81.91'
+2,'Thibaud','Brunskill','tbrunskill1@istockphoto.com','Male','194.213.229.13'
+3,'Lilyan','de Glanville','ldeglanville2@dailymail.co.uk','Female','189.95.223.1'
+4,'Gris','Warfield','gwarfield3@hud.gov','Male','54.43.76.116'
+5,'Beale','Brownlea','bbrownlea4@marriott.com','Male','179.176.147.80'
+
+table
+
+# this is basically the default format that prettytable offers
++----+------------+--------------+-------------------------------+--------+----------------+
+| id | first_name |  last_name   |             email             | gender |   ip_address   |
++----+------------+--------------+-------------------------------+--------+----------------+
+| 1  | Nelie      | Pelfer       | npelfer0@sciencedaily.com     | Female | 239.186.81.91  |
+| 2  | Thibaud    | Brunskill    | tbrunskill1@istockphoto.com   | Male   | 194.213.229.13 |
+| 3  | Lilyan     | de Glanville | ldeglanville2@dailymail.co.uk | Female | 189.95.223.1   |
+| 4  | Gris       | Warfield     | gwarfield3@hud.gov            | Male   | 54.43.76.116   |
+| 5  | Beale      | Brownlea     | bbrownlea4@marriott.com       | Male   | 179.176.147.80 |
++----+------------+--------------+-------------------------------+--------+----------------+
+
+tabs
+
+# already defined in consts.rs
+1	Nelie	Pelfer	npelfer0@sciencedaily.com	Female	239.186.81.91
+2	Thibaud	Brunskill	tbrunskill1@istockphoto.com	Male	194.213.229.13
+3	Lilyan	de Glanville	ldeglanville2@dailymail.co.uk	Female	189.95.223.1
+4	Gris	Warfield	gwarfield3@hud.gov	Male	54.43.76.116
+5	Beale	Brownlea	bbrownlea4@marriott.com	Male	179.176.147.80
+
+tcl
+
+# basically like csv but replace the comma with a space and surround everything with double quotes
+"1" "Nelie" "Pelfer" "npelfer0@sciencedaily.com" "Female" "239.186.81.91"
+"2" "Thibaud" "Brunskill" "tbrunskill1@istockphoto.com" "Male" "194.213.229.13"
+"3" "Lilyan" "de Glanville" "ldeglanville2@dailymail.co.uk" "Female" "189.95.223.1"
+"4" "Gris" "Warfield" "gwarfield3@hud.gov" "Male" "54.43.76.116"
+"5" "Beale" "Brownlea" "bbrownlea4@marriott.com" "Male" "179.176.147.80"

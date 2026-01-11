@@ -247,7 +247,7 @@ lazy_static! {
         .padding(0, 0)
         .indent(0)
         .build();
-    pub static ref BOXED: TableFormat = FormatBuilder::new()
+    pub static ref BOX: TableFormat = FormatBuilder::new()
         .column_separator('│')
         .separator(LinePosition::Title, LineSeparator::new('─', '┼', '├', '┤'))
         .padding(1, 1)
