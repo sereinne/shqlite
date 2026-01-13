@@ -221,6 +221,20 @@ pub const HELP_COMMANDS: [[&str; 3]; 68] = [
 ];
 
 lazy_static! {
+    pub static ref LINE: TableFormat = FormatBuilder::new()
+        .column_separator(' ')
+        .borders(' ')
+        .separators(
+            &[
+                LinePosition::Bottom,
+                LinePosition::Intern,
+                LinePosition::Title,
+                LinePosition::Top
+            ],
+            LineSeparator::new(' ', ' ', ' ', ' ')
+        )
+        .padding(0, 1)
+        .build();
     pub static ref TABS: TableFormat = FormatBuilder::new()
         .column_separator('\t')
         .padding(0, 0)

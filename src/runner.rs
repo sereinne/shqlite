@@ -1,11 +1,14 @@
-use std::io::Write;
-
 use crate::config::{Context, Output, TableMode};
 use crate::util;
-use prettytable::format::{Alignment, TableFormat};
-use prettytable::{Cell, Row, Table};
-use rusqlite::Statement;
-use rusqlite::types::ValueRef;
+use prettytable::format::TableFormat;
+use prettytable::{Table, row, table};
+use rusqlite::config::DbConfig;
+use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
+use rusqlite::{Connection, MAIN_DB};
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, exit};
 
 pub struct CommandRunner<'a> {
     ctx: &'a mut Context,
@@ -17,6 +20,15 @@ impl<'a> CommandRunner<'a> {
     }
 
     pub fn run_command(&mut self, input: &str) -> rusqlite::Result<()> {
+        if self.ctx.with_echo {
+            let writer: &mut dyn Write = match &mut self.ctx.output {
+                Output::BufferedStdout(out) => out,
+                Output::BufferedFile(f) => f,
+            };
+
+            let _ = write!(writer, "{}", input);
+        }
+
         if input.starts_with(".") {
             let splitted = input.split(" ").collect::<Vec<&str>>();
             let dot_cmd = splitted[0];
@@ -33,7 +45,6 @@ impl<'a> CommandRunner<'a> {
         match dot_cmd {
             ".archive" => self.dot_archive(args),
             ".auth" => self.dot_auth(args),
-            ".backup" => self.dot_backup(args),
             ".bail" => self.dot_bail(args),
             ".cd" => self.dot_cd(args),
             ".changes" => self.dot_changes(args),
@@ -41,7 +52,7 @@ impl<'a> CommandRunner<'a> {
             ".clone" => self.dot_clone(args),
             ".connection" => self.dot_connection(args),
             ".crlf" => self.dot_crlf(args),
-            ".databases" => self.dot_databases(args),
+            ".databases" => self.dot_databases(args).unwrap(),
             ".dbconfig" => self.dot_dbconfig(args),
             ".dbinfo" => self.dot_dbinfo(args),
             ".dbtotxt" => self.dot_dbtotxt(args),
@@ -58,7 +69,7 @@ impl<'a> CommandRunner<'a> {
             ".help" => self.dot_help(args),
             ".import" => self.dot_import(args),
             ".imposter" => self.dot_imposter(args),
-            ".indexes" => self.dot_indexes(args),
+            ".indexes" => self.dot_indexes(args).unwrap(),
             ".intck" => self.dot_intck(args),
             ".limit" => self.dot_limit(args),
             ".lint" => self.dot_lint(args),
@@ -74,21 +85,20 @@ impl<'a> CommandRunner<'a> {
             ".print" => self.dot_print(args),
             ".progress" => self.dot_progress(args),
             ".prompt" => self.dot_prompt(args),
-            ".quit" => self.dot_quit(args),
+            ".quit" => self.dot_quit(),
             ".read" => self.dot_read(args),
             ".recover" => self.dot_recover(args),
             ".restore" => self.dot_restore(args),
-            ".save" => self.dot_save(args),
+            ".save" | ".backup" => self.dot_save(args),
             ".scanstats" => self.dot_scanstats(args),
-            ".schema" => self.dot_schema(args),
+            ".schema" => self.dot_schema(args).unwrap(),
             ".separator" => self.dot_separator(args),
             ".session" => self.dot_session(args),
             ".sha3sum" => self.dot_sha3sum(args),
-            ".shell" => self.dot_shell(args),
             ".show" => self.dot_show(args),
             ".stats" => self.dot_stats(args),
-            ".system" => self.dot_system(args),
-            ".tables" => self.dot_tables(args),
+            ".system" | ".shell" => self.dot_system(args),
+            ".tables" => self.dot_tables(args).unwrap(),
             ".timeout" => self.dot_timeout(args),
             ".timer" => self.dot_timer(args),
             ".trace" => self.dot_trace(args),
@@ -134,72 +144,521 @@ impl<'a> CommandRunner<'a> {
         Ok(())
     }
 
-    fn dot_archive(&mut self, args: &[&str]) {}
-    fn dot_auth(&mut self, args: &[&str]) {}
-    fn dot_backup(&mut self, args: &[&str]) {}
-    fn dot_bail(&mut self, args: &[&str]) {}
-    fn dot_cd(&mut self, args: &[&str]) {}
-    fn dot_changes(&mut self, args: &[&str]) {}
-    fn dot_check(&mut self, args: &[&str]) {}
-    fn dot_clone(&mut self, args: &[&str]) {}
-    fn dot_connection(&mut self, args: &[&str]) {}
-    fn dot_crlf(&mut self, args: &[&str]) {}
-    fn dot_databases(&mut self, args: &[&str]) {}
-    fn dot_dbconfig(&mut self, args: &[&str]) {}
-    fn dot_dbinfo(&mut self, args: &[&str]) {}
-    fn dot_dbtotxt(&mut self, args: &[&str]) {}
-    fn dot_dump(&mut self, args: &[&str]) {}
-    fn dot_echo(&mut self, args: &[&str]) {}
-    fn dot_eqp(&mut self, args: &[&str]) {}
-    fn dot_excel(&mut self, args: &[&str]) {}
-    fn dot_exit(&mut self, args: &[&str]) {}
-    fn dot_expert(&mut self, args: &[&str]) {}
-    fn dot_explain(&mut self, args: &[&str]) {}
-    fn dot_filectrl(&mut self, args: &[&str]) {}
-    fn dot_fullschema(&mut self, args: &[&str]) {}
-    fn dot_headers(&mut self, args: &[&str]) {}
-    fn dot_help(&mut self, args: &[&str]) {}
-    fn dot_import(&mut self, args: &[&str]) {}
-    fn dot_imposter(&mut self, args: &[&str]) {}
-    fn dot_indexes(&mut self, args: &[&str]) {}
-    fn dot_intck(&mut self, args: &[&str]) {}
-    fn dot_limit(&mut self, args: &[&str]) {}
-    fn dot_lint(&mut self, args: &[&str]) {}
-    fn dot_load(&mut self, args: &[&str]) {}
-    fn dot_log(&mut self, args: &[&str]) {}
-    fn dot_mode(&mut self, args: &[&str]) {}
-    fn dot_nonce(&mut self, args: &[&str]) {}
-    fn dot_nullvalue(&mut self, args: &[&str]) {}
-    fn dot_once(&mut self, args: &[&str]) {}
-    fn dot_open(&mut self, args: &[&str]) {}
-    fn dot_output(&mut self, args: &[&str]) {}
-    fn dot_parameter(&mut self, args: &[&str]) {}
-    fn dot_print(&mut self, args: &[&str]) {}
-    fn dot_progress(&mut self, args: &[&str]) {}
-    fn dot_prompt(&mut self, args: &[&str]) {}
-    fn dot_quit(&mut self, args: &[&str]) {}
-    fn dot_read(&mut self, args: &[&str]) {}
-    fn dot_recover(&mut self, args: &[&str]) {}
-    fn dot_restore(&mut self, args: &[&str]) {}
-    fn dot_save(&mut self, args: &[&str]) {}
-    fn dot_scanstats(&mut self, args: &[&str]) {}
-    fn dot_schema(&mut self, args: &[&str]) {}
-    fn dot_separator(&mut self, args: &[&str]) {}
-    fn dot_session(&mut self, args: &[&str]) {}
-    fn dot_sha3sum(&mut self, args: &[&str]) {}
-    fn dot_shell(&mut self, args: &[&str]) {}
-    fn dot_show(&mut self, args: &[&str]) {}
-    fn dot_stats(&mut self, args: &[&str]) {}
-    fn dot_system(&mut self, args: &[&str]) {}
-    fn dot_tables(&mut self, args: &[&str]) {}
-    fn dot_timeout(&mut self, args: &[&str]) {}
-    fn dot_timer(&mut self, args: &[&str]) {}
-    fn dot_trace(&mut self, args: &[&str]) {}
-    fn dot_unmodule(&mut self, args: &[&str]) {}
-    fn dot_version(&mut self, args: &[&str]) {}
-    fn dot_vfsinfo(&mut self, args: &[&str]) {}
-    fn dot_vfslist(&mut self, args: &[&str]) {}
-    fn dot_vfsname(&mut self, args: &[&str]) {}
-    fn dot_width(&mut self, args: &[&str]) {}
-    fn dot_www(&mut self, args: &[&str]) {}
+    fn dot_archive(&mut self, _args: &[&str]) {}
+    fn dot_auth(&mut self, _args: &[&str]) {}
+    fn dot_bail(&mut self, _args: &[&str]) {}
+    fn dot_cd(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".cd needs an argument");
+            return;
+        }
+
+        let path = PathBuf::from(args[0]);
+        if !path.exists() {
+            println!("path doesn't exist {}", path.display());
+            return;
+        }
+
+        if path.is_absolute() {
+            self.ctx.cwd = path;
+            return;
+        } else if path.is_dir() && path.is_relative() {
+            self.ctx.cwd.push(path);
+        }
+    }
+    fn dot_changes(&mut self, _args: &[&str]) {}
+    fn dot_check(&mut self, _args: &[&str]) {}
+    fn dot_clone(&mut self, _args: &[&str]) {}
+    fn dot_connection(&mut self, _args: &[&str]) {}
+    fn dot_crlf(&mut self, _args: &[&str]) {}
+    fn dot_databases(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
+        let sql = "SELECT seq , name , file FROM pragma_database_list";
+        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let col_count = stmt.column_count();
+
+        let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+        let data = util::query_data_rows(
+            &mut stmt,
+            col_count,
+            self.ctx.mode,
+            self.ctx.null_value.as_ref(),
+        )?;
+
+        util::construct_and_print_output(
+            &mut self.ctx.output,
+            self.ctx.mode,
+            title,
+            data,
+            self.ctx.with_header,
+        );
+
+        Ok(())
+    }
+    fn dot_dbconfig(&mut self, _args: &[&str]) {
+        let attach_create = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE)
+                .unwrap(),
+        );
+        let attach_write = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE)
+                .unwrap(),
+        );
+        let comments = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_COMMENTS)
+                .unwrap(),
+        );
+        let defensive = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE)
+                .unwrap(),
+        );
+        let dps_ddl = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_DQS_DDL)
+                .unwrap(),
+        );
+        let dps_dml = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_DQS_DML)
+                .unwrap(),
+        );
+        let enable_fkey = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY)
+                .unwrap(),
+        );
+        let enable_qpsg = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_QPSG)
+                .unwrap(),
+        );
+        let enable_trigger = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER)
+                .unwrap(),
+        );
+        let enable_view = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_VIEW)
+                .unwrap(),
+        );
+        let fts3_tokenizer = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER)
+                .unwrap(),
+        );
+        let legacy_alter_table = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_LEGACY_ALTER_TABLE)
+                .unwrap(),
+        );
+        let legacy_file_format = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_LEGACY_FILE_FORMAT)
+                .unwrap(),
+        );
+        let no_ckpt_on_close = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE)
+                .unwrap(),
+        );
+        let reset_database = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE)
+                .unwrap(),
+        );
+        let reverse_scanorder = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_REVERSE_SCANORDER)
+                .unwrap(),
+        );
+        let stmt_scanstatus = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_STMT_SCANSTATUS)
+                .unwrap(),
+        );
+        let trigger_eqp = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_TRIGGER_EQP)
+                .unwrap(),
+        );
+        let trusted_schema = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA)
+                .unwrap(),
+        );
+        let writable_schema = util::bool_to_on_or_off(
+            self.ctx
+                .conn
+                .db_config(DbConfig::SQLITE_DBCONFIG_WRITABLE_SCHEMA)
+                .unwrap(),
+        );
+        let mut tbl = table! {
+            ["attach_create", attach_create],
+            ["attach_write", attach_write],
+            ["comments", comments],
+            ["defensive", defensive],
+            ["dps_ddl", dps_ddl],
+            ["dps_dml", dps_dml],
+            ["enable_fkey", enable_fkey],
+            ["enable_qpsg", enable_qpsg],
+            ["enable_trigger", enable_trigger],
+            ["enable_view", enable_view],
+            ["fts3_tokenizer", fts3_tokenizer],
+            ["legacy_alter_table", legacy_alter_table],
+            ["legacy_file_format", legacy_file_format],
+            // ["load_extension", load_extension],
+            ["no_ckpt_on_close", no_ckpt_on_close],
+            ["reset_database", reset_database],
+            ["reverse_scanorder", reverse_scanorder],
+            ["stmt_scanstatus", stmt_scanstatus],
+            ["trigger_eqp", trigger_eqp],
+            ["trusted_schema", trusted_schema],
+            ["writable_schema", writable_schema]
+        };
+        tbl.set_titles(row![c => "pragmas", "value"]);
+
+        let fmt = TableFormat::try_from(self.ctx.mode).unwrap_or(*crate::consts::BOX);
+        tbl.set_format(fmt);
+
+        self.ctx.output.print_prettytable(&mut tbl);
+    }
+    fn dot_dbinfo(&mut self, _args: &[&str]) {}
+    fn dot_dbtotxt(&mut self, _args: &[&str]) {}
+    fn dot_dump(&mut self, _args: &[&str]) {}
+    fn dot_echo(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".echo needs an argument");
+            return;
+        }
+
+        let confirmation = util::on_or_off_to_bool(args[0]);
+        self.ctx.with_echo = confirmation;
+    }
+    fn dot_eqp(&mut self, _args: &[&str]) {}
+    fn dot_excel(&mut self, _args: &[&str]) {}
+    fn dot_exit(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".exit needs at least one argument");
+            return;
+        }
+
+        let exit_code = args[0]
+            .parse::<i32>()
+            .expect("unable to parse from string to integer");
+        exit(exit_code);
+    }
+    fn dot_expert(&mut self, _args: &[&str]) {}
+    fn dot_explain(&mut self, _args: &[&str]) {}
+    fn dot_filectrl(&mut self, _args: &[&str]) {}
+    fn dot_fullschema(&mut self, _args: &[&str]) {}
+    fn dot_headers(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".headers needs at least an argument");
+            return;
+        }
+
+        self.ctx.with_header = util::on_or_off_to_bool(args[0]);
+    }
+    fn dot_help(&mut self, _args: &[&str]) {
+        let mut table = Table::new();
+        // format titles with a center alignment based on `Prettytable::Cell::style_spec`
+        table.set_titles(row![c => "command", "args", "desc"]);
+        for [cmd, args, desc] in crate::consts::HELP_COMMANDS {
+            table.add_row(row![cmd, args, desc]);
+        }
+
+        let fmt = TableFormat::try_from(self.ctx.mode).expect("unable to print with such mode");
+        table.set_format(fmt);
+        self.ctx.output.print_prettytable(&mut table);
+    }
+    fn dot_import(&mut self, _args: &[&str]) {}
+    fn dot_imposter(&mut self, _args: &[&str]) {}
+    fn dot_indexes(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
+        let sql =
+            "SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite_%'";
+        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let col_count = stmt.column_count();
+
+        let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+        let table_names = util::query_data_rows(
+            &mut stmt,
+            col_count,
+            self.ctx.mode,
+            self.ctx.null_value.as_ref(),
+        )?;
+
+        util::construct_and_print_output(
+            &mut self.ctx.output,
+            self.ctx.mode,
+            title,
+            table_names,
+            true,
+        );
+
+        Ok(())
+    }
+    fn dot_intck(&mut self, _args: &[&str]) {}
+    fn dot_limit(&mut self, _args: &[&str]) {}
+    fn dot_lint(&mut self, _args: &[&str]) {}
+    fn dot_load(&mut self, _args: &[&str]) {}
+    fn dot_log(&mut self, _args: &[&str]) {}
+    fn dot_mode(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".mode needs at least an argument");
+            return;
+        }
+
+        self.ctx.mode = TableMode::try_from(args[0]).expect("unrecognized command");
+    }
+    fn dot_nonce(&mut self, _args: &[&str]) {}
+    fn dot_nullvalue(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".nullvalue needs an argument");
+            return;
+        }
+
+        self.ctx.null_value = Some(args[0].to_string());
+    }
+    fn dot_once(&mut self, _args: &[&str]) {}
+    fn dot_open(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".open needs an argument");
+            return;
+        }
+
+        let path = Path::new(args[0]);
+        self.ctx.cwd.push(path);
+
+        let new_conn =
+            Connection::open(&self.ctx.cwd).expect("unable to establish a new database connection");
+
+        self.ctx.conn = new_conn;
+
+        self.ctx.cwd.pop();
+    }
+    fn dot_output(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".output needs at least on argument");
+            return;
+        }
+
+        let path = Path::new(args[0]);
+        self.ctx.cwd.push(path);
+
+        if self.ctx.cwd.exists() {
+            let f = File::open(&self.ctx.cwd).unwrap();
+            let bufwriter = BufWriter::new(f);
+            self.ctx.output = Output::BufferedFile(bufwriter);
+            return;
+        }
+
+        let f = File::create(&self.ctx.cwd).expect("unable to create file");
+        let bufwriter = BufWriter::new(f);
+        self.ctx.output = Output::BufferedFile(bufwriter);
+
+        self.ctx.cwd.pop();
+    }
+    fn dot_parameter(&mut self, _args: &[&str]) {}
+    fn dot_print(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!();
+            return;
+        }
+
+        println!("{}", args.join(" "));
+    }
+    fn dot_progress(&mut self, _args: &[&str]) {}
+    fn dot_prompt(&mut self, _args: &[&str]) {}
+    fn dot_quit(&mut self) {
+        exit(0);
+    }
+    fn dot_read(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".read needs an argument");
+            return;
+        }
+
+        let path = Path::new(args[0]);
+        self.ctx.cwd.push(path);
+
+        let db_file = File::open(&self.ctx.cwd).expect("unable to open file");
+        let reader = BufReader::new(db_file);
+        reader.split(b';').flatten().for_each(|sql| {
+            let sql_str = str::from_utf8(&sql).expect("encountered a non-utf8 character");
+            let trim = sql_str.trim();
+            if !trim.is_empty() {
+                self.run_user_query(trim).expect("unable to run user query");
+            }
+        });
+
+        self.ctx.cwd.pop();
+    }
+    fn dot_recover(&mut self, _args: &[&str]) {}
+    fn dot_restore(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".restore needs an argument");
+            return;
+        }
+
+        let path = Path::new(args[0]);
+        self.ctx.cwd.push(path);
+
+        self.ctx
+            .conn
+            .restore(MAIN_DB, &self.ctx.cwd, Some(util::show_progress))
+            .expect("unable to backup");
+
+        self.ctx.cwd.pop();
+    }
+    fn dot_save(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".save or .backup needs an argument");
+            return;
+        }
+        let path = Path::new(args[0]);
+        self.ctx.cwd.push(path);
+
+        self.ctx
+            .conn
+            .backup(MAIN_DB, &self.ctx.cwd, Some(util::show_progress))
+            .unwrap();
+
+        self.ctx.cwd.pop();
+    }
+    fn dot_scanstats(&mut self, _args: &[&str]) {}
+    fn dot_schema(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
+        let sql = "SELECT sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%' ORDER BY tbl_name, type DESC, name";
+        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let col_count = stmt.column_count();
+
+        let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+        let table_names = util::query_data_rows(
+            &mut stmt,
+            col_count,
+            self.ctx.mode,
+            self.ctx.null_value.as_ref(),
+        )?;
+
+        util::construct_and_print_output(
+            &mut self.ctx.output,
+            self.ctx.mode,
+            title,
+            table_names,
+            true,
+        );
+
+        Ok(())
+    }
+    fn dot_separator(&mut self, _args: &[&str]) {}
+    fn dot_session(&mut self, _args: &[&str]) {}
+    fn dot_sha3sum(&mut self, _args: &[&str]) {}
+    fn dot_show(&mut self, _args: &[&str]) {}
+    fn dot_stats(&mut self, _args: &[&str]) {}
+    fn dot_system(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            println!(".system needs at least an argument");
+            return;
+        }
+
+        let prog = args[0];
+        let args = &args[1..];
+        let output = Command::new(prog)
+            .args(args)
+            .output()
+            .expect("unable to get output");
+
+        let writer: &mut dyn Write = match &mut self.ctx.output {
+            Output::BufferedStdout(out) => out,
+            Output::BufferedFile(f) => f,
+        };
+
+        let _ = write!(
+            writer,
+            "{}",
+            str::from_utf8(&output.stdout)
+                .expect("unable to print output because theis one or more non-utf8 character")
+        );
+        let _ = write!(
+            writer,
+            "{}",
+            str::from_utf8(&output.stderr)
+                .expect("unable to print output because theis one or more non-utf8 character")
+        );
+    }
+    fn dot_tables(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
+        let sql = "SELECT name FROM sqlite_schema WHERE type in ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY 1";
+        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let col_count = stmt.column_count();
+
+        let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+        let table_names = util::query_data_rows(
+            &mut stmt,
+            col_count,
+            self.ctx.mode,
+            self.ctx.null_value.as_ref(),
+        )?;
+
+        util::construct_and_print_output(
+            &mut self.ctx.output,
+            self.ctx.mode,
+            title,
+            table_names,
+            true,
+        );
+
+        Ok(())
+    }
+    fn dot_timeout(&mut self, _args: &[&str]) {}
+    fn dot_timer(&mut self, _args: &[&str]) {}
+    fn dot_trace(&mut self, _args: &[&str]) {}
+    fn dot_unmodule(&mut self, _args: &[&str]) {}
+    fn dot_version(&mut self, _args: &[&str]) {
+        let version: &str = SQLITE_VERSION
+            .to_str()
+            .expect("version string has a non-utf 8 character");
+
+        let mut sqlite_source_id = SQLITE_SOURCE_ID
+            .to_str()
+            .expect("version string has a non-utf 8 character")
+            .split(" ");
+
+        let date = sqlite_source_id.next().expect("unable to get date");
+        let timestamp = sqlite_source_id.next().expect("unable to get timestamp");
+        let hash = sqlite_source_id.next().expect("unable to get hash");
+
+        let mut table = table!([version, date, timestamp, hash]);
+        table.set_titles(row![c => "version", "date", "timestamp", "hash"]);
+        let fmt = TableFormat::try_from(self.ctx.mode).unwrap_or(*crate::consts::BOX);
+        table.set_format(fmt);
+
+        self.ctx.output.print_prettytable(&mut table);
+    }
+    fn dot_vfsinfo(&mut self, _args: &[&str]) {}
+    fn dot_vfslist(&mut self, _args: &[&str]) {}
+    fn dot_vfsname(&mut self, _args: &[&str]) {}
+    fn dot_width(&mut self, _args: &[&str]) {}
+    fn dot_www(&mut self, _args: &[&str]) {}
 }

@@ -26,6 +26,7 @@ pub enum TableMode {
     Tcl,
 }
 
+#[derive(Debug)]
 pub struct UnrecognizedTableMode;
 
 impl TryFrom<&str> for TableMode {
@@ -72,17 +73,22 @@ impl From<TableMode> for &str {
     }
 }
 
-impl From<TableMode> for TableFormat {
-    fn from(value: TableMode) -> Self {
+#[derive(Debug)]
+pub struct InvalidRepresentation;
+
+impl TryFrom<TableMode> for TableFormat {
+    type Error = InvalidRepresentation;
+    fn try_from(value: TableMode) -> Result<Self, Self::Error> {
         match value {
-            TableMode::Tabs => *crate::consts::TABS,
-            TableMode::Csv => *crate::consts::CSV,
-            TableMode::Column => *crate::consts::COLUMN,
-            TableMode::Markdown => *crate::consts::MARKDOWN,
-            TableMode::List => *crate::consts::LIST,
-            TableMode::Box => *crate::consts::BOX,
-            TableMode::Table => *prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE,
-            _ => unreachable!(),
+            TableMode::Tabs => Ok(*crate::consts::TABS),
+            TableMode::Csv => Ok(*crate::consts::CSV),
+            TableMode::Column => Ok(*crate::consts::COLUMN),
+            TableMode::Markdown => Ok(*crate::consts::MARKDOWN),
+            TableMode::List => Ok(*crate::consts::LIST),
+            TableMode::Box => Ok(*crate::consts::BOX),
+            TableMode::Table => Ok(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE),
+            TableMode::Line => Ok(*crate::consts::LINE),
+            _ => Err(InvalidRepresentation),
         }
     }
 }

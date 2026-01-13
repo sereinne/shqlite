@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 use crate::app::App;
 use crate::{config::Context, runner::CommandRunner};
 use clap::Parser;
