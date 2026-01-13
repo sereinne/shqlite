@@ -9,4 +9,4 @@ clap = { version = "4.5.54", features = ["derive"] }
 lazy_static = "1.5.0"
 prettytable-rs = "0.10.0"
 rusqlite = { version = "0.38.0", features = ["modern_sqlite", "backup"] }
-rustyline = "17.0.1"
+rustyline = { version = "17.0.1", features = ["with-file-history"] }

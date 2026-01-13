@@ -2,6 +2,7 @@ use crate::config::{Context, Output, TableMode};
 use crate::util;
 use prettytable::format::TableFormat;
 use prettytable::{Table, row, table};
+use rusqlite::Error as RSQE;
 use rusqlite::config::DbConfig;
 use rusqlite::ffi::{SQLITE_SOURCE_ID, SQLITE_VERSION};
 use rusqlite::{Connection, MAIN_DB};
@@ -117,29 +118,45 @@ impl<'a> CommandRunner<'a> {
     }
 
     fn run_user_query(&mut self, query: &str) -> rusqlite::Result<()> {
-        let mut stmt = self.ctx.conn.prepare(query)?;
-        let col_count = stmt.column_count();
+        match self.ctx.conn.prepare(query) {
+            Ok(mut stmt) => {
+                let col_count = stmt.column_count();
 
-        if col_count == 0 {
-            stmt.execute(())?;
-            return Ok(());
+                if col_count == 0 {
+                    stmt.execute(())?;
+                    return Ok(());
+                }
+
+                let column_names = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+                let row_datas = util::query_data_rows(
+                    &mut stmt,
+                    col_count,
+                    self.ctx.mode,
+                    self.ctx.null_value_repr.as_ref(),
+                )?;
+
+                util::construct_and_print_output(
+                    &mut self.ctx.output,
+                    self.ctx.mode,
+                    column_names,
+                    row_datas,
+                    self.ctx.with_header,
+                );
+            }
+            Err(e) => match e {
+                RSQE::SqlInputError { msg, sql, .. } => {
+                    eprintln!("ERROR: {} is in invalid sqlite query", sql);
+                    eprintln!("{}", msg);
+                }
+                RSQE::SqliteFailure(_, msg) => {
+                    eprintln!(
+                        "ERROR: {}",
+                        msg.unwrap_or("something bad happended".to_string())
+                    );
+                }
+                _ => eprintln!("ERROR: {:?}", e),
+            },
         }
-
-        let column_names = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
-        let row_datas = util::query_data_rows(
-            &mut stmt,
-            col_count,
-            self.ctx.mode,
-            self.ctx.null_value.as_ref(),
-        )?;
-
-        util::construct_and_print_output(
-            &mut self.ctx.output,
-            self.ctx.mode,
-            column_names,
-            row_datas,
-            self.ctx.with_header,
-        );
 
         Ok(())
     }
@@ -181,7 +198,7 @@ impl<'a> CommandRunner<'a> {
             &mut stmt,
             col_count,
             self.ctx.mode,
-            self.ctx.null_value.as_ref(),
+            self.ctx.null_value_repr.as_ref(),
         )?;
 
         util::construct_and_print_output(
@@ -347,7 +364,74 @@ impl<'a> CommandRunner<'a> {
     }
     fn dot_dbinfo(&mut self, _args: &[&str]) {}
     fn dot_dbtotxt(&mut self, _args: &[&str]) {}
-    fn dot_dump(&mut self, _args: &[&str]) {}
+    fn dot_dump(&mut self, _args: &[&str]) {
+        // cast this into a trait object to reduce duplicate code
+        let writer: &mut dyn Write = match &mut self.ctx.output {
+            Output::BufferedStdout(out) => out,
+            Output::BufferedFile(f) => f,
+        };
+
+        // disable foreign keys constraint and create a transaction, this is important because
+        // if the dumping process goes wrong, the results would be invalid. Therefore, we must put all of this operation
+        // in a transaction block
+        let _ = writeln!(writer, "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;");
+
+        // get all things that the users creates
+        let sql = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%'";
+        let mut items_stmt = self
+            .ctx
+            .conn
+            .prepare(sql)
+            .expect("unable to prepare query for dumping");
+        let col_count = items_stmt.column_count();
+
+        let created_items = util::query_data_rows(
+            &mut items_stmt,
+            col_count,
+            TableMode::Box,
+            self.ctx.null_value_repr.as_ref(),
+        )
+        .expect("unable to query sqlite_schema");
+
+        // dump the sql representation of all things that the users creates
+        for items in created_items {
+            let item_name = &items[0];
+            let item_type = &items[1];
+            let item_sql = &items[2];
+            // if the user creates a table or a view, we must populate the table with INSERT INTO statements if there are items inside it.
+            if item_type == "table" || item_type == "view" {
+                let table_to_populate_sql = format!("SELECT * FROM {item_name}");
+                let mut insert_into_stmt = self
+                    .ctx
+                    .conn
+                    .prepare(&table_to_populate_sql)
+                    .expect("unable to prepare query for populating data");
+
+                let col_count = insert_into_stmt.column_count();
+
+                let insert_datas = util::query_data_rows(
+                    &mut insert_into_stmt,
+                    col_count,
+                    TableMode::Quote,
+                    self.ctx.null_value_repr.as_ref(),
+                )
+                .expect("unable to get table content");
+
+                for values in insert_datas {
+                    let values = values.join(",");
+                    let _ = writeln!(writer, "INSERT INTO {} VALUES ({});", item_name, values);
+                }
+            } else {
+                // if its not a table, maybe an index or a trigger we could just print the sql.
+                let _ = writeln!(writer, "{};", item_sql);
+            }
+        }
+
+        // commit those changes
+        let _ = writeln!(writer, "COMMIT;");
+        // don't forget to flush!
+        writer.flush().expect("unable to flush");
+    }
     fn dot_echo(&mut self, args: &[&str]) {
         if args.is_empty() {
             println!(".echo needs an argument");
@@ -390,7 +474,7 @@ impl<'a> CommandRunner<'a> {
             table.add_row(row![cmd, args, desc]);
         }
 
-        let fmt = TableFormat::try_from(self.ctx.mode).expect("unable to print with such mode");
+        let fmt = TableFormat::try_from(self.ctx.mode).unwrap_or(*crate::consts::BOX);
         table.set_format(fmt);
         self.ctx.output.print_prettytable(&mut table);
     }
@@ -407,7 +491,7 @@ impl<'a> CommandRunner<'a> {
             &mut stmt,
             col_count,
             self.ctx.mode,
-            self.ctx.null_value.as_ref(),
+            self.ctx.null_value_repr.as_ref(),
         )?;
 
         util::construct_and_print_output(
@@ -440,7 +524,7 @@ impl<'a> CommandRunner<'a> {
             return;
         }
 
-        self.ctx.null_value = Some(args[0].to_string());
+        self.ctx.null_value_repr = Some(args[0].to_string());
     }
     fn dot_once(&mut self, _args: &[&str]) {}
     fn dot_open(&mut self, args: &[&str]) {
@@ -549,26 +633,35 @@ impl<'a> CommandRunner<'a> {
         self.ctx.cwd.pop();
     }
     fn dot_scanstats(&mut self, _args: &[&str]) {}
-    fn dot_schema(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
-        let sql = "SELECT sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%' ORDER BY tbl_name, type DESC, name";
-        let mut stmt = self.ctx.conn.prepare(sql)?;
-        let col_count = stmt.column_count();
+    fn dot_schema(&mut self, args: &[&str]) -> rusqlite::Result<()> {
+        let mut sql = "SELECT sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%' ORDER BY tbl_name, type DESC, name".to_string();
 
-        let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
+        if !args.is_empty() {
+            let item_name = args[0];
+            sql = format!("SELECT sql FROM sqlite_schema WHERE name = '{}'", item_name);
+        }
+
+        let mut stmt = self.ctx.conn.prepare(&sql)?;
+
         let table_names = util::query_data_rows(
             &mut stmt,
-            col_count,
-            self.ctx.mode,
-            self.ctx.null_value.as_ref(),
+            1,
+            TableMode::Box,
+            self.ctx.null_value_repr.as_ref(),
         )?;
 
-        util::construct_and_print_output(
-            &mut self.ctx.output,
-            self.ctx.mode,
-            title,
-            table_names,
-            true,
-        );
+        let writer: &mut dyn Write = match &mut self.ctx.output {
+            Output::BufferedStdout(out) => out,
+            Output::BufferedFile(f) => f,
+        };
+
+        for table in table_names {
+            writeln!(writer, "{};", table[0]).expect("unable to write all bytes");
+        }
+
+        writer
+            .flush()
+            .expect("unable to flush because not all bytes are written");
 
         Ok(())
     }
@@ -618,7 +711,7 @@ impl<'a> CommandRunner<'a> {
             &mut stmt,
             col_count,
             self.ctx.mode,
-            self.ctx.null_value.as_ref(),
+            self.ctx.null_value_repr.as_ref(),
         )?;
 
         util::construct_and_print_output(

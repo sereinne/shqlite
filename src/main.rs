@@ -1,13 +1,13 @@
 use crate::app::App;
+use crate::tui::CustomEditor;
 use crate::{config::Context, runner::CommandRunner};
 use clap::Parser;
-use rustyline::DefaultEditor;
 
 mod app;
 mod config;
 mod consts;
 mod runner;
-mod shqlite;
+mod tui;
 mod util;
 
 fn main() -> anyhow::Result<()> {
@@ -15,10 +15,10 @@ fn main() -> anyhow::Result<()> {
 
     let mut ctx = Context::from(app);
 
-    let mut editor = DefaultEditor::new()?;
+    let mut editor = CustomEditor::new();
 
     loop {
-        let user_input = editor.readline("shqlite> ");
+        let user_input = editor.readline();
         match user_input {
             Ok(input) => {
                 let mut runner = CommandRunner::new(&mut ctx);

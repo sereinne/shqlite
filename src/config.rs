@@ -139,7 +139,7 @@ pub struct Context {
     pub(crate) cwd: PathBuf,
     pub(crate) with_header: bool,
     pub(crate) with_echo: bool,
-    pub(crate) null_value: Option<String>,
+    pub(crate) null_value_repr: Option<String>,
 }
 
 impl Default for Context {
@@ -153,7 +153,7 @@ impl Default for Context {
             cwd: std::env::current_dir().expect("cwd may not exists or insuffiecient permission"),
             with_header: false,
             with_echo: false,
-            null_value: None,
+            null_value_repr: None,
         }
     }
 }
@@ -192,6 +192,6 @@ impl Context {
         self.with_echo = !self.with_echo;
     }
     pub fn set_null_value(&mut self, null_value: String) {
-        self.null_value = Some(null_value);
+        self.null_value_repr = Some(null_value);
     }
 }
