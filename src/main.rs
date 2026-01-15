@@ -1,5 +1,7 @@
+use std::process::exit;
+
 use crate::app::App;
-use crate::tui::CustomEditor;
+use crate::tui::Prompt;
 use crate::{config::Context, runner::CommandRunner};
 use clap::Parser;
 
@@ -15,16 +17,35 @@ fn main() -> anyhow::Result<()> {
 
     let mut ctx = Context::from(app);
 
-    let mut editor = CustomEditor::new();
+    let mut prompt = Prompt::new();
 
     loop {
-        let user_input = editor.readline();
+        let user_input = prompt.readline();
         match user_input {
             Ok(input) => {
+                prompt.add_history_entry(&input)?;
+                if input == ".quit" {
+                    break;
+                }
+
+                if input.starts_with(".exit") {
+                    let exit_code = input
+                        .split(" ")
+                        .skip(1)
+                        .take(1)
+                        .next()
+                        .unwrap_or("0")
+                        .parse::<i32>()
+                        .unwrap_or(0);
+                    exit(exit_code);
+                }
+
                 let mut runner = CommandRunner::new(&mut ctx);
                 runner.run_command(&input)?;
             }
             Err(e) => util::handle_readline_err(e),
         }
     }
+    prompt.save_history()?;
+    Ok(())
 }

@@ -1,11 +1,13 @@
 use prettytable::Table;
 use prettytable::format::TableFormat;
 use rusqlite::Connection;
+use std::cell::RefCell;
 use std::fmt;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::io::{Stdout, stdout};
 use std::path::PathBuf;
+use std::rc::Rc;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub enum TableMode {
@@ -132,7 +134,7 @@ impl Output {
 }
 
 pub struct Context {
-    pub(crate) conn: Connection,
+    pub(crate) conn: Rc<RefCell<Connection>>,
     pub(crate) output: Output,
     pub(crate) mode: TableMode,
     pub(crate) command: Option<String>,
@@ -145,8 +147,10 @@ pub struct Context {
 impl Default for Context {
     fn default() -> Self {
         Self {
-            conn: Connection::open_in_memory()
-                .expect("could not establish a temporary database connection"),
+            conn: Rc::new(RefCell::new(
+                Connection::open_in_memory()
+                    .expect("unable to establish an in-memory database connection"),
+            )),
             output: Output::BufferedStdout(BufWriter::new(stdout())),
             mode: TableMode::Box,
             command: None,
@@ -162,7 +166,8 @@ impl Context {
     pub fn set_conn(&mut self, path: String) {
         self.cwd.push(&path);
 
-        self.conn = Connection::open(&self.cwd).expect("unable to establish a database connection");
+        *self.conn.borrow_mut() =
+            Connection::open(&self.cwd).expect("unable to establish a database connection");
         self.cwd.pop();
     }
     pub fn set_output(&mut self, path: String) {

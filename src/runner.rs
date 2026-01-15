@@ -61,7 +61,6 @@ impl<'a> CommandRunner<'a> {
             ".echo" => self.dot_echo(args),
             ".eqp" => self.dot_eqp(args),
             ".excel" => self.dot_excel(args),
-            ".exit" => self.dot_exit(args),
             ".expert" => self.dot_expert(args),
             ".explain" => self.dot_explain(args),
             ".filectrl" => self.dot_filectrl(args),
@@ -86,7 +85,6 @@ impl<'a> CommandRunner<'a> {
             ".print" => self.dot_print(args),
             ".progress" => self.dot_progress(args),
             ".prompt" => self.dot_prompt(args),
-            ".quit" => self.dot_quit(),
             ".read" => self.dot_read(args),
             ".recover" => self.dot_recover(args),
             ".restore" => self.dot_restore(args),
@@ -118,7 +116,7 @@ impl<'a> CommandRunner<'a> {
     }
 
     fn run_user_query(&mut self, query: &str) -> rusqlite::Result<()> {
-        match self.ctx.conn.prepare(query) {
+        match self.ctx.conn.borrow().prepare(query) {
             Ok(mut stmt) => {
                 let col_count = stmt.column_count();
 
@@ -190,7 +188,8 @@ impl<'a> CommandRunner<'a> {
     fn dot_crlf(&mut self, _args: &[&str]) {}
     fn dot_databases(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
         let sql = "SELECT seq , name , file FROM pragma_database_list";
-        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let conn = self.ctx.conn.borrow();
+        let mut stmt = conn.prepare(sql)?;
         let col_count = stmt.column_count();
 
         let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
@@ -215,120 +214,140 @@ impl<'a> CommandRunner<'a> {
         let attach_create = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE)
                 .unwrap(),
         );
         let attach_write = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE)
                 .unwrap(),
         );
         let comments = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_COMMENTS)
                 .unwrap(),
         );
         let defensive = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE)
                 .unwrap(),
         );
         let dps_ddl = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_DQS_DDL)
                 .unwrap(),
         );
         let dps_dml = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_DQS_DML)
                 .unwrap(),
         );
         let enable_fkey = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FKEY)
                 .unwrap(),
         );
         let enable_qpsg = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_QPSG)
                 .unwrap(),
         );
         let enable_trigger = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_TRIGGER)
                 .unwrap(),
         );
         let enable_view = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_VIEW)
                 .unwrap(),
         );
         let fts3_tokenizer = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER)
                 .unwrap(),
         );
         let legacy_alter_table = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_LEGACY_ALTER_TABLE)
                 .unwrap(),
         );
         let legacy_file_format = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_LEGACY_FILE_FORMAT)
                 .unwrap(),
         );
         let no_ckpt_on_close = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE)
                 .unwrap(),
         );
         let reset_database = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_RESET_DATABASE)
                 .unwrap(),
         );
         let reverse_scanorder = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_REVERSE_SCANORDER)
                 .unwrap(),
         );
         let stmt_scanstatus = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_STMT_SCANSTATUS)
                 .unwrap(),
         );
         let trigger_eqp = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_TRIGGER_EQP)
                 .unwrap(),
         );
         let trusted_schema = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA)
                 .unwrap(),
         );
         let writable_schema = util::bool_to_on_or_off(
             self.ctx
                 .conn
+                .borrow()
                 .db_config(DbConfig::SQLITE_DBCONFIG_WRITABLE_SCHEMA)
                 .unwrap(),
         );
@@ -378,9 +397,8 @@ impl<'a> CommandRunner<'a> {
 
         // get all things that the users creates
         let sql = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE '%_autoindex_%'";
-        let mut items_stmt = self
-            .ctx
-            .conn
+        let conn = self.ctx.conn.borrow();
+        let mut items_stmt = conn
             .prepare(sql)
             .expect("unable to prepare query for dumping");
         let col_count = items_stmt.column_count();
@@ -401,9 +419,8 @@ impl<'a> CommandRunner<'a> {
             // if the user creates a table or a view, we must populate the table with INSERT INTO statements if there are items inside it.
             if item_type == "table" || item_type == "view" {
                 let table_to_populate_sql = format!("SELECT * FROM {item_name}");
-                let mut insert_into_stmt = self
-                    .ctx
-                    .conn
+                let conn = self.ctx.conn.borrow();
+                let mut insert_into_stmt = conn
                     .prepare(&table_to_populate_sql)
                     .expect("unable to prepare query for populating data");
 
@@ -443,17 +460,6 @@ impl<'a> CommandRunner<'a> {
     }
     fn dot_eqp(&mut self, _args: &[&str]) {}
     fn dot_excel(&mut self, _args: &[&str]) {}
-    fn dot_exit(&mut self, args: &[&str]) {
-        if args.is_empty() {
-            println!(".exit needs at least one argument");
-            return;
-        }
-
-        let exit_code = args[0]
-            .parse::<i32>()
-            .expect("unable to parse from string to integer");
-        exit(exit_code);
-    }
     fn dot_expert(&mut self, _args: &[&str]) {}
     fn dot_explain(&mut self, _args: &[&str]) {}
     fn dot_filectrl(&mut self, _args: &[&str]) {}
@@ -483,7 +489,8 @@ impl<'a> CommandRunner<'a> {
     fn dot_indexes(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
         let sql =
             "SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite_%'";
-        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let conn = self.ctx.conn.borrow();
+        let mut stmt = conn.prepare(sql)?;
         let col_count = stmt.column_count();
 
         let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
@@ -539,7 +546,7 @@ impl<'a> CommandRunner<'a> {
         let new_conn =
             Connection::open(&self.ctx.cwd).expect("unable to establish a new database connection");
 
-        self.ctx.conn = new_conn;
+        *self.ctx.conn.borrow_mut() = new_conn;
 
         self.ctx.cwd.pop();
     }
@@ -576,9 +583,6 @@ impl<'a> CommandRunner<'a> {
     }
     fn dot_progress(&mut self, _args: &[&str]) {}
     fn dot_prompt(&mut self, _args: &[&str]) {}
-    fn dot_quit(&mut self) {
-        exit(0);
-    }
     fn dot_read(&mut self, args: &[&str]) {
         if args.is_empty() {
             println!(".read needs an argument");
@@ -612,6 +616,7 @@ impl<'a> CommandRunner<'a> {
 
         self.ctx
             .conn
+            .borrow_mut()
             .restore(MAIN_DB, &self.ctx.cwd, Some(util::show_progress))
             .expect("unable to backup");
 
@@ -627,6 +632,7 @@ impl<'a> CommandRunner<'a> {
 
         self.ctx
             .conn
+            .borrow()
             .backup(MAIN_DB, &self.ctx.cwd, Some(util::show_progress))
             .unwrap();
 
@@ -641,7 +647,8 @@ impl<'a> CommandRunner<'a> {
             sql = format!("SELECT sql FROM sqlite_schema WHERE name = '{}'", item_name);
         }
 
-        let mut stmt = self.ctx.conn.prepare(&sql)?;
+        let conn = self.ctx.conn.borrow();
+        let mut stmt = conn.prepare(&sql)?;
 
         let table_names = util::query_data_rows(
             &mut stmt,
@@ -703,7 +710,8 @@ impl<'a> CommandRunner<'a> {
     }
     fn dot_tables(&mut self, _args: &[&str]) -> rusqlite::Result<()> {
         let sql = "SELECT name FROM sqlite_schema WHERE type in ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY 1";
-        let mut stmt = self.ctx.conn.prepare(sql)?;
+        let conn = self.ctx.conn.borrow();
+        let mut stmt = conn.prepare(sql)?;
         let col_count = stmt.column_count();
 
         let title = util::query_title_row(&mut stmt, col_count, self.ctx.mode)?;
