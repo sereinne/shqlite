@@ -16,8 +16,9 @@ fn main() -> anyhow::Result<()> {
     let app = App::parse();
 
     let mut ctx = Context::from(app);
+    let cloned_conn = ctx.conn.clone();
 
-    let mut prompt = Prompt::new();
+    let mut prompt = Prompt::new(cloned_conn);
 
     loop {
         let user_input = prompt.readline();

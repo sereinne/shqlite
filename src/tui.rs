@@ -1,5 +1,7 @@
-use crate::consts;
+use crate::config::TableMode;
+use crate::{consts, util};
 use radix_trie::{Trie, TrieCommon};
+use rusqlite::Connection;
 use rustyline::Helper;
 use rustyline::completion::Completer;
 use rustyline::config::Configurer;
@@ -7,44 +9,70 @@ use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Config, EditMode, Editor, history::FileHistory};
-use std::borrow::{Borrow, Cow};
-use std::fs::read_to_string;
-use std::ops::Add;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::hint::spin_loop;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::consts::HELP_COMMANDS;
 
 pub struct PromptCompleter<'a> {
-    // conn: Rc<RefCell<Connection>>,
+    conn: Rc<RefCell<Connection>>,
     dot_commands: Trie<&'a str, ()>,
 }
 
 impl<'a> PromptCompleter<'a> {
-    pub fn new() -> Self {
+    pub fn new(conn: Rc<RefCell<Connection>>) -> Self {
         let mut rdx = Trie::new();
 
         HELP_COMMANDS.iter().for_each(|info| {
             rdx.insert(info[0], ());
         });
 
-        Self { dot_commands: rdx }
+        Self {
+            dot_commands: rdx,
+            conn,
+        }
     }
 }
 
 impl<'a> Helper for PromptCompleter<'a> {}
 
 impl<'a> Completer for PromptCompleter<'a> {
-    type Candidate = &'a str;
+    type Candidate = String;
     fn complete(
         &self, // FIXME should be `&mut self`
         line: &str,
         pos: usize,
         ctx: &rustyline::Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        let tokens = util::tokenize(line);
+
+        let mut table_names: Vec<String> = Vec::new();
+        if util::should_complete_tables(&tokens) {
+            let get_tables_sql = "SELECT name FROM sqlite_schema WHERE type in ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY 1";
+            let conn = self.conn.borrow();
+            let mut stmt = conn
+                .prepare(get_tables_sql)
+                .expect("unable to create a prepared statement");
+            let col_count = stmt.column_count();
+            let tables = util::query_data_rows(&mut stmt, col_count, TableMode::Box, None)
+                .expect("unable to query tables");
+            let tables: Vec<String> = tables.into_iter().flatten().collect();
+            table_names.extend(tables);
+
+            return Ok((pos, table_names.clone()));
+        }
+
         if let Some(children) = self.dot_commands.get_raw_descendant(line) {
-            let candidates = children.keys().map(|key| *key).collect::<Vec<&str>>();
+            let candidates = children
+                .keys()
+                .map(|key| key.to_string())
+                .collect::<Vec<_>>();
             return Ok((0, candidates));
         }
+
         Ok((0, vec![]))
     }
 }
@@ -57,6 +85,7 @@ const GRUVBOX_PURPLE: &str = "\x1b[38;5;175m"; // Types
 const GRUVBOX_AQUA: &str = "\x1b[38;5;108m"; // Operators
 const GRUVBOX_ORANGE: &str = "\x1b[38;5;208m"; // Built-in functions
 const RESET: &str = "\x1b[0m";
+
 impl<'a> Highlighter for PromptCompleter<'a> {
     fn highlight_char(&self, line: &str, pos: usize, kind: rustyline::highlight::CmdKind) -> bool {
         true
@@ -71,7 +100,7 @@ impl<'a> Highlighter for PromptCompleter<'a> {
             match ch {
                 // dot commands
                 '.' if current_word.is_empty() => {
-                    result.push_str(GRUVBOX_ORANGE);
+                    result.push_str(GRUVBOX_YELLOW);
                     result.push(ch);
                     while let Some(&c) = chars.peek() {
                         if c == ' ' {
@@ -107,7 +136,7 @@ impl<'a> Highlighter for PromptCompleter<'a> {
                 }
                 // Numbers
                 '0'..='9' if current_word.is_empty() => {
-                    result.push_str(GRUVBOX_BLUE);
+                    result.push_str(GRUVBOX_RED);
                     result.push(ch);
                     while let Some(&next_ch) = chars.peek() {
                         if next_ch.is_numeric() || next_ch == '.' {
@@ -134,11 +163,11 @@ impl<'a> Highlighter for PromptCompleter<'a> {
                     if !current_word.is_empty() {
                         let upper = current_word.to_uppercase();
                         if consts::is_sqlite_keyword(&current_word) {
-                            result.push_str(GRUVBOX_RED);
+                            result.push_str(GRUVBOX_ORANGE);
                             result.push_str(&upper);
                             result.push_str(RESET);
                         } else if consts::is_sqlite_type(&current_word) {
-                            result.push_str(GRUVBOX_YELLOW);
+                            result.push_str(GRUVBOX_PURPLE);
                             result.push_str(&upper);
                             result.push_str(RESET);
                         } else {
@@ -183,12 +212,10 @@ pub struct Prompt<'a> {
     editor: Editor<PromptCompleter<'a>, FileHistory>,
     hist_file: PathBuf,
 }
+
 impl<'a> Prompt<'a> {
-    pub fn new() -> Self {
-        let editor_cfg = Config::builder()
-            .edit_mode(EditMode::Vi)
-            .color_mode(rustyline::ColorMode::Enabled)
-            .build();
+    pub fn new(conn: Rc<RefCell<Connection>>) -> Self {
+        let editor_cfg = Config::builder().edit_mode(EditMode::Vi).build();
         let history_cfg = Config::builder()
             .history_ignore_space(true)
             .max_history_size(1024)
@@ -198,7 +225,7 @@ impl<'a> Prompt<'a> {
         let mut editor =
             Editor::with_history(editor_cfg, file_history).expect("unable to create a prompt");
 
-        let completer = PromptCompleter::new();
+        let completer = PromptCompleter::new(conn);
         editor.set_helper(Some(completer));
         editor.set_completion_type(CompletionType::List);
 

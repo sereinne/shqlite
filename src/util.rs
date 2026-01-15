@@ -12,6 +12,28 @@ use rusqlite::types::ValueRef;
 
 use crate::config::Output;
 
+pub fn tokenize(input: &str) -> Vec<&str> {
+    input.split(|c: char| c.is_whitespace()).collect()
+}
+
+pub fn should_complete_tables(tokens: &[&str]) -> bool {
+    if tokens.len() < 2 {
+        return false;
+    }
+
+    let prev_word = tokens[tokens.len() - 2];
+    matches!(prev_word, "JOIN" | "FROM")
+}
+
+pub fn should_complete_columns(tokens: &[&str]) -> bool {
+    if tokens.len() < 2 {
+        return false;
+    }
+
+    let prev_word = tokens[tokens.len() - 2];
+    matches!(prev_word, "SELECT" | "WHERE" | "ORDER BY" | "ON")
+}
+
 pub fn show_progress(prog: Progress) {
     let completed = prog.pagecount - prog.remaining;
     let percent = (completed as f64 / prog.pagecount as f64 * 100.0) as u32;

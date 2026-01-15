@@ -9,7 +9,7 @@ use rusqlite::{Connection, MAIN_DB};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, exit};
+use std::process::{Command};
 
 pub struct CommandRunner<'a> {
     ctx: &'a mut Context,
